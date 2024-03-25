@@ -1,5 +1,5 @@
 bl_info = {
-  "name": "Treasure Planet (PS2) Asset editor",
+  "name": "Thousand Worlds: Treasure Planet (PS2) Asset editor",
   "author": "Colt Zero",
   "version": (1, 0),
   "blender": (3, 3, 3),
@@ -84,6 +84,7 @@ class LP2Exporter(bpy.types.Operator, ExportHelper):
   filename_ext = ".LP2"
   filter_glob: StringProperty(default="*.LP2", options={'HIDDEN'})
   
+  save_mesh_changes: BoolProperty(name="Save Level Meshes", description="Save Changes to Level Meshes", default=False)
   save_actor_changes: BoolProperty(name="Save Actors", description="Save Changes to Actors", default=True)
   save_dynamic_instance_changes: BoolProperty(name="Save Dynamic Instances", description="Save Changes to Dynamic Instances", default=True)
   save_spline_changes: BoolProperty(name="Save Splines", description="Save Changes to Splines", default=True)
@@ -136,6 +137,7 @@ class LP2_PT_export_options(bpy.types.Panel):
     sfile = context.space_data
     operator = sfile.active_operator
     
+    layout.prop(operator, "save_mesh_changes")
     layout.prop(operator, "save_actor_changes")
     layout.prop(operator, "save_dynamic_instance_changes")
     layout.prop(operator, "save_spline_changes")

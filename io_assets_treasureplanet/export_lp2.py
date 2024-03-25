@@ -270,7 +270,7 @@ def find_blocks(data, blocks, offset=0):
       else:
         return
 
-def save(context, filepath="", save_actor_changes=True, save_dynamic_instance_changes=True, save_spline_changes=True, save_aimap_changes=False, use_selection=False):
+def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True, save_dynamic_instance_changes=True, save_spline_changes=True, save_aimap_changes=False, use_selection=False):
   #adef_data = None
   adef_path = os.path.join(current_dir.absolute(), "tp_utils")
   adef = load_adef(adef_path)
@@ -480,15 +480,16 @@ def save(context, filepath="", save_actor_changes=True, save_dynamic_instance_ch
       #print(group["edges"])
       #print(group["faces"])
   
-  for rendName in rendMeshes.keys():
-    rendOb, rendIndex = rendMeshes[rendName]
-    if not rendIndex in dynamicRendMeshes: continue
-    minVec, maxVec, mesh_data, n_color_layers = dynamicRendMeshes[rendIndex]
-    while rendIndex >= len(geometry.render_sections):
-      geometry.render_sections.append(RenderSection())
-      geometry.render_sections[-1].save_changes()
-    geometry.render_sections[rendIndex].inject_changes(mesh_data, n_color_layers, minVec, maxVec, materials.materials)
-    geometry.render_sections[rendIndex].save_changes()
+  if save_mesh_changes:
+    for rendName in rendMeshes.keys():
+      rendOb, rendIndex = rendMeshes[rendName]
+      if not rendIndex in dynamicRendMeshes: continue
+      minVec, maxVec, mesh_data, n_color_layers = dynamicRendMeshes[rendIndex]
+      while rendIndex >= len(geometry.render_sections):
+        geometry.render_sections.append(RenderSection())
+        geometry.render_sections[-1].save_changes()
+      geometry.render_sections[rendIndex].inject_changes(mesh_data, n_color_layers, minVec, maxVec, materials.materials)
+      geometry.render_sections[rendIndex].save_changes()
   
   aimapNames = [aimap.name for aimap in aimapObjects]
   for ob_eval in aimapObjects:
