@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 
 current_dir = Path(os.path.dirname(__file__))
-#sys.path.insert(1, os.path.join(current_dir.absolute(), "tp_utils"))
+sys.path.insert(1, os.path.join(current_dir.absolute(), "tp_utils"))
 
 import bpy
 import bmesh
@@ -18,7 +18,7 @@ from tp_utils.tristripper import TriangleStripper, PrimitiveType, triangle_from_
 from tp_utils.tp2 import reduce_colors
 
 try:
-    from tp_utils.decompress import *
+    from decompress import *
     has_decompress = True
 except ImportError:
     has_decompress = False

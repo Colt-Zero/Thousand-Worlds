@@ -5,13 +5,13 @@ from pathlib import Path
 
 current_dir = Path(os.path.dirname(__file__))
 print(str(current_dir))
-#sys.path.insert(1, os.path.join(current_dir.absolute(), "tp_utils"))
+sys.path.insert(1, os.path.join(current_dir.absolute(), "tp_utils"))
 
 from tp_utils.fs_helpers import *
 from tp_utils.tp2 import read_tp2
 
 try:
-    from tp_utils.decompress import *
+    from decompress import *
     has_decompress = True
 except ImportError:
     has_decompress = False

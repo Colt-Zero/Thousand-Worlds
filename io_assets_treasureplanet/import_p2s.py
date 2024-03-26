@@ -6,7 +6,7 @@ from pathlib import Path
 
 current_dir = Path(os.path.dirname(__file__))
 #print(str(current_dir))
-sys.path.insert(1, os.path.join(current_dir.parent.absolute(), "tp_utils"))
+sys.path.insert(1, os.path.join(current_dir.absolute(), "tp_utils"))
 
 try:
     from decompress import *

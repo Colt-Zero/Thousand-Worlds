@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 
 current_dir = Path(os.path.dirname(__file__))
-#sys.path.insert(1, os.path.join(current_dir.absolute(), "tp_utils"))
+sys.path.insert(1, os.path.join(current_dir.absolute(), "tp_utils"))
 
 import bpy
 import bmesh
@@ -17,7 +17,7 @@ from tp_utils.lp2 import LightsEntry, SplineListEntry, AIMapListEntry, ActorInfo
 from tp_utils.tristripper import TriangleStripper, PrimitiveType, triangle_from_strip_to_triangle_list
 
 try:
-    from tp_utils.decompress import *
+    from decompress import *
     has_decompress = True
 except ImportError:
     has_decompress = False
@@ -562,14 +562,14 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
         v1 = vs[0]# * Vector([1., 0., 1.])
         v2 = vs[1]# * Vector([1., 0., 1.])
         v3 = vs[2]# * Vector([1., 0., 1.])
-        edge1 = v2 - v1
-        edge2 = v3 - v1
+        edge1 = v3 - v1
+        edge2 = v2 - v1
         #mid = (v1 + v2 + v3) / 3.0
         #mid = v1 + edge1 * 0.5
         edge_dir = edge1.cross(edge2)
         edge_dir = edge_dir * Vector([1.,0.,1.])
         edge_dir.normalize()
-        edge_dir = Vector([edge_dir[0], edge_dir[1], -edge_dir[2]])
+        #edge_dir = Vector([edge_dir[0], edge_dir[1], -edge_dir[2]])
         edge_plane = [edge_dir[0], 0.0, edge_dir[2], -edge_dir.dot(v3 * Vector([1.,0.,1.]))]
         oewvs.extend(edge_plane)
     aimaps.add_map(out_verts, out_faces)
