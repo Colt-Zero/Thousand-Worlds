@@ -7,8 +7,8 @@ current_dir = Path(os.path.dirname(__file__))
 print(str(current_dir))
 sys.path.insert(1, os.path.join(current_dir.absolute(), "tp_utils"))
 
-from tp_utils.fs_helpers import *
-from tp_utils.tp2 import reduce_colors
+from fs_helpers import *
+from tp2 import reduce_colors
 
 try:
     from decompress import *

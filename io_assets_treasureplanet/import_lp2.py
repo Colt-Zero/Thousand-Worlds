@@ -9,7 +9,7 @@ current_dir = Path(os.path.dirname(__file__))
 print(str(current_dir))
 sys.path.insert(1, os.path.join(current_dir.absolute(), "tp_utils"))
 
-from tp_utils.fs_helpers import *
+from fs_helpers import *
 
 try:
     from decompress import *
@@ -22,10 +22,10 @@ print("Decompressor: %d" % int(has_decompress))
 import bpy
 from mathutils import Vector, Matrix, Quaternion, Euler
 
-from tp_utils.adef import ActorStringsEntry
-from tp_utils.textures import TextureListEntry, AnimatedTexturesEntry
+from adef import ActorStringsEntry
+from textures import TextureListEntry, AnimatedTexturesEntry
 
-from tp_utils.lp2 import LightsEntry, SplineListEntry, AIMapListEntry, ActorInfoListEntry, Models, GeometrySection, LevelMaterialsEntry, load_adef, PVS, Grid, NodeTree
+from lp2 import LightsEntry, SplineListEntry, AIMapListEntry, ActorInfoListEntry, Models, GeometrySection, LevelMaterialsEntry, load_adef, PVS, Grid, NodeTree
 
 import json
 
@@ -370,7 +370,7 @@ def load_lp2(data, name, adef, asset_root):
       
       bpy_material.node_tree.links.new(mix_col.outputs[0], matnodes["Principled BSDF"].inputs[0])
       bpy_material.node_tree.links.new(matnodes["Principled BSDF"].outputs[0], matnodes['Material Output'].inputs[0])
-      
+      edge_planes = aimaps.get_edgeplanes()
       for a, (mesh_vertices, mesh_faces, mesh_edges, edge_blocks, cell_blocks, cell_corners, transform) in enumerate(aimaps.get_bpymaps()):
         mesh = bpy.data.meshes.new(name="AIMap %d" % (a))
         mesh.from_pydata(mesh_vertices, mesh_edges, mesh_faces)
@@ -396,6 +396,12 @@ def load_lp2(data, name, adef, asset_root):
           mesh.attributes["Edge Blocks 1"].data[eb].value = edge_block[0]
           mesh.attributes["Edge Blocks 2"].data[eb].value = edge_block[-1]
         obj.matrix_world = Euler((math.radians(90), 0, 0)).to_matrix().to_4x4() @ transform
+        for t, plane_transform in enumerate(edge_planes[a]):
+          edge_plane = bpy.data.objects.new("AI Map %d_Edge Plane %d" % (a, t), None)
+          aimap_collection.objects.link(edge_plane)
+          edge_plane.empty_display_type = 'SINGLE_ARROW'
+          edge_plane.matrix_world = plane_transform
+          edge_plane.parent = obj
         obj.select_set(False)
     elif key == "AINF":
       data.seek(block)
@@ -831,7 +837,7 @@ def load(operator, context, filepath=""):
   filedata = None
   
   #adef_data = None
-  adef_path = os.path.join(current_dir.parent.absolute(), "tp_utils")
+  adef_path = os.path.join(current_dir.absolute(), "tp_utils")
   adef = load_adef(adef_path)
   #adef_path = os.path.join(adef_path, "adef.sama")
   #with open (adef_path, "rb") as f:

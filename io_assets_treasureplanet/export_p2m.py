@@ -11,11 +11,11 @@ import bpy
 import bmesh
 from mathutils import Vector, Matrix, Quaternion, Euler
 
-from tp_utils.fs_helpers import *
-from tp_utils.textures import TextureListEntry
-from tp_utils.p2m import ModelBounds, ModlMaterialsEntry, ModelEntry, ModlMaterialEntry
-from tp_utils.tristripper import TriangleStripper, PrimitiveType, triangle_from_strip_to_triangle_list
-from tp_utils.tp2 import reduce_colors
+from fs_helpers import *
+from textures import TextureListEntry
+from p2m import ModelBounds, ModlMaterialsEntry, ModelEntry, ModlMaterialEntry
+from tristripper import TriangleStripper, PrimitiveType, triangle_from_strip_to_triangle_list
+from tp2 import reduce_colors
 
 try:
     from decompress import *

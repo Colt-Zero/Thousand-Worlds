@@ -10,11 +10,11 @@ sys.path.insert(1, os.path.join(current_dir.absolute(), "tp_utils"))
 import bpy
 import bmesh
 from mathutils import Vector, Matrix, Quaternion, Euler
-from tp_utils.fs_helpers import *
-from tp_utils.adef import ActorStringsEntry
-from tp_utils.textures import TextureListEntry, AnimatedTexturesEntry
-from tp_utils.lp2 import LightsEntry, SplineListEntry, AIMapListEntry, ActorInfoListEntry, Models, LevelModelInstance, LevelMaterialsEntry, GeometrySection, RenderSection, load_adef
-from tp_utils.tristripper import TriangleStripper, PrimitiveType, triangle_from_strip_to_triangle_list
+from fs_helpers import *
+from adef import ActorStringsEntry
+from textures import TextureListEntry, AnimatedTexturesEntry
+from lp2 import LightsEntry, SplineListEntry, AIMapListEntry, ActorInfoListEntry, Models, LevelModelInstance, LevelMaterialsEntry, GeometrySection, RenderSection, load_adef
+from tristripper import TriangleStripper, PrimitiveType, triangle_from_strip_to_triangle_list
 
 try:
     from decompress import *

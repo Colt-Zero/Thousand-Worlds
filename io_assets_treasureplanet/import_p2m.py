@@ -8,7 +8,7 @@ current_dir = Path(os.path.dirname(__file__))
 #print(str(current_dir))
 sys.path.insert(1, os.path.join(current_dir.absolute(), "tp_utils"))
 
-from tp_utils.fs_helpers import *
+from fs_helpers import *
 
 try:
     from decompress import *
@@ -20,8 +20,8 @@ import bpy
 from bpy_extras.io_utils import unpack_list
 from mathutils import Vector
 
-from tp_utils.textures import TextureListEntry
-from tp_utils.p2m import ModelBounds, ModlMaterialsEntry, ModelEntry
+from textures import TextureListEntry
+from p2m import ModelBounds, ModlMaterialsEntry, ModelEntry
 
 def find_blocks(data, blocks, offset=0):
   magic = try_read_str(data, offset, 4)

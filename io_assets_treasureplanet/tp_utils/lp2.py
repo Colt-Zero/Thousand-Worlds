@@ -2,6 +2,7 @@ from io import BytesIO
 import os
 from fs_helpers import *
 from adef import Adef, ActorStringsEntry
+import math
 from mathutils import Vector, Matrix, Euler
 
 def load_adef(path):
@@ -1768,6 +1769,12 @@ class AIMapListEntry:
     self.maps.append(aimap)
     self.count = len(self.maps)
   
+  def get_edgeplanes(self):
+    planes = []
+    for m in self.maps:
+      planes.append(m.get_edgeplanes())
+    return planes
+  
   def get_bpymaps(self):
     maps = []
     for m in self.maps:
@@ -1888,6 +1895,21 @@ class AIMapEntry: #TODO Potentially make it possible to create AIMaps based on t
       cell = self.AIMapCell(None, self.type)
       cell.from_py(face)
       self.map_cells.append(cell)
+  
+  def get_edgeplanes(self):
+    output = []
+    #vertices = [self.transform @ Vector(vertex) for vertex in self.vertices]
+    vertices = [Vector(vertex) for vertex in self.vertices]
+    for c, cell in enumerate(self.map_cells):
+      for e, edge in enumerate(cell.edge_indices):
+        edge_center = (vertices[edge[0]] + vertices[edge[1]]) / 2.0
+        edge_planevec = Vector(cell.edge_worldvecs[e][0:3])
+        transform = Matrix()
+        transform[3] = Vector(list(edge_center[:]) + [1.0])
+        transform = transform.transposed()
+        transform = transform @ Euler((math.radians(-90), 0, 0)).to_matrix().to_4x4() @ edge_planevec.to_track_quat('-X', 'Y').to_matrix().transposed().to_4x4()
+        output.append(transform)
+    return output
   
   def get_bpymesh(self):
     from collections import deque
