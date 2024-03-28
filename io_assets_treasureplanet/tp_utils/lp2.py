@@ -319,12 +319,13 @@ class RenderSection:
   def save_changes(self):
     output = BytesIO()
     write_u32(output, output.tell(), swap32(self.color_maps))
-    for f in self.bounding_floats: write_float(output, output.tell(), swapfloat(f))
+    for f in range(6): write_float(output, output.tell(), swapfloat(self.bounding_floats[f]))
     write_u32(output, output.tell(), swap32(self.sub_mesh_count))
     for submesh in self.submeshes: output.write(submesh.save_changes().read())
     self.entry_offset = 0
     self.data = output
     self.data_size = data_len(self.data)
+    self.data.seek(0)
   
   def get_section_geometry(self):
     material_uvs = {}
@@ -438,7 +439,7 @@ class RenderedGeometry:
       self.face_data = []
       self.vertices = []
       for v in range(self.vertex_count):
-        self.vertices.extend(list(v_data[v][0]))
+        self.vertices.extend(list(v_data[v][0][:]))
         self.face_data.append(v_data[v][1])
       self.vertices = [self.vertices[i:i+3] for i in range(0, len(self.vertices), 3)]
       
@@ -450,7 +451,7 @@ class RenderedGeometry:
       if material.normals:
         _n = []
         for v in range(self.vertex_count):
-          _n.extend(list(n_data[v]))
+          _n.extend(list(n_data[v][:]))
         self.normals = [_n[i:i+3] for i in range(0, len(_n), 3)]
       
       self.colors = [[] for _ in range(len(col_data))]
@@ -471,7 +472,7 @@ class RenderedGeometry:
         for m in range(material.uv_maps):
           _uv_map = []
           for v in range(self.vertex_count):
-            _uv_map.append(list(uv_data[m][v]))
+            _uv_map.append(list(uv_data[m][v][:]))
           self.uvs.append(_uv_map)
           uv_map = []
           for face in self.faces:
@@ -505,9 +506,10 @@ class RenderedGeometry:
       return output
     
     def add_face(self, faces, fc, face_data, flip):
-      if (face_data & 0x8000): return (face_data & 0x1) == 0x0#True#flip
+      if (face_data & 0x8000): return True#flip
       fa = max(0, fc - 2)
       fb = max(0, fc - 1)
+      flip = (fc % 2) != 0
       if fc >= 2:
         if not flip: faces.append([fa, fb, fc])
         else: faces.append([fb, fa, fc])#([fa, fc, fb])
@@ -1907,7 +1909,7 @@ class AIMapEntry: #TODO Potentially make it possible to create AIMaps based on t
         transform = Matrix()
         transform[3] = Vector(list(edge_center[:]) + [1.0])
         transform = transform.transposed()
-        transform = transform @ Euler((math.radians(-90), 0, 0)).to_matrix().to_4x4() @ edge_planevec.to_track_quat('-X', 'Y').to_matrix().transposed().to_4x4()
+        transform = transform @ Euler((math.radians(90), 0, 0)).to_matrix().to_4x4() @ edge_planevec.to_track_quat('X', 'Y').to_matrix().transposed().to_4x4()
         output.append(transform)
     return output
   

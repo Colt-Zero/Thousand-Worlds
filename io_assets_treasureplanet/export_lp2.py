@@ -236,13 +236,15 @@ def extract_blender_render(rendOb):
         verts.append((v_pos, strip_flag))
         normals.append(v_nor)
         for uv_index, v_uv in enumerate(v_uvs.keys()):
-          if "." in v_uv: uv_index = int(v_uv.split(".")[-1])
-          if uv_index >= len(uvs): uvs.append([])
-          uvs[uv_index].append(v_uvs[v_uv])
+          uv_ind = uv_index
+          if "." in v_uv: uv_ind = int(v_uv.split(".")[-1])
+          while uv_ind >= len(uvs): uvs.append([])
+          uvs[uv_ind].append(v_uvs[v_uv])
         for col_index, v_col in enumerate(v_cols.keys()):
-          if "." in v_col: col_index = int(v_col.split(".")[-1])
-          if col_index >= len(colors): colors.append([])
-          colors[col_index].append(v_cols[v_col])
+          col_ind = col_index
+          if "." in v_col: col_ind = int(v_col.split(".")[-1])
+          while col_ind >= len(colors): colors.append([])
+          colors[col_ind].append(v_cols[v_col])
       new_strips.append((verts, normals, uvs, colors))
     if mat_index in mesh_data: mesh_data[mat_index].extend(new_strips)
     else: mesh_data[mat_index] = new_strips
