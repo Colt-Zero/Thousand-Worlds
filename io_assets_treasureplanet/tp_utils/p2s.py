@@ -61,24 +61,26 @@ class SkelModelEntry:
     for lod_mesh in self.meshes:
       if not lod_mesh.name.endswith("_l%d"%lod_no): continue
       lod_radii.append(lod_mesh.lod_radius)
-      geometry.append((lod_mesh.get_submesh_geometry(), int(lod_mesh.name.rsplit("_l")[1])))
+      geometry.extend(lod_mesh.get_submesh_geometry())
+      #geometry.append((lod_mesh.get_submesh_geometry(), int(lod_mesh.name.rsplit("_l")[1])))
     
     added_offset = 0
-    for g, (lod_geometry, group_id) in enumerate(geometry):
-      for submesh_vertices, submesh_normals, submesh_faces, submesh_offset in lod_geometry:
-        #adjusted_indices = submesh_faces.copy()
-        adjusted_indices_flat = [ind + added_offset for face in submesh_faces for ind in face]
-        adjusted_indices = [adjusted_indices_flat[f:f+3] for f in range(0, len(adjusted_indices_flat), 3)]
-        if added_offset == 0:
-          mesh_vertices = submesh_vertices.copy()
-          mesh_normals = submesh_normals.copy()
-          mesh_faces = adjusted_indices
-        else:
-          mesh_vertices.extend(submesh_vertices)
-          mesh_normals.extend(submesh_normals)
-          mesh_faces.extend(adjusted_indices)
-        added_offset += len(submesh_vertices)
-    return mesh_vertices, mesh_normals, mesh_faces, lod_radii
+    #for g, lod_geometry in enumerate(geometry):
+    for submesh_vertices, submesh_normals, submesh_faces, submesh_offset in geometry:
+      adjusted_indices = submesh_faces.copy()
+      #adjusted_indices_flat = [ind + added_offset for face in submesh_faces for ind in face]
+      #adjusted_indices = [adjusted_indices_flat[f:f+3] for f in range(0, len(adjusted_indices_flat), 3)]
+      if added_offset == 0:
+        mesh_vertices = submesh_vertices.copy()
+        mesh_normals = submesh_normals.copy()
+        mesh_faces = adjusted_indices
+      else:
+        mesh_vertices.extend(submesh_vertices)
+        mesh_normals.extend(submesh_normals)
+        mesh_faces.extend(adjusted_indices)
+      added_offset += len(submesh_vertices)
+    #return geometry, lod_radii
+    return [(mesh_vertices, mesh_normals, mesh_faces)], lod_radii
 
 class SkelModelLodEntry:
   def __init__(self, data, name, lod_flag):
@@ -99,7 +101,7 @@ class SkelModelLodEntry:
     #print("Place %08x" % self.data.tell())
     #submesh_count > geom_count > strip_count > substrip_count * 8
     for submesh in self.submeshes:
-      val = sread_u32(self.data, self.data.tell())
+      submesh.material_index = sread_u32(self.data, self.data.tell())
       for geom in submesh.geometry:
         for sc in geom.strip_counts:
           self.data.seek(self.data.tell() + (sc * 0x4 * 2)) # Likely uvs
@@ -127,43 +129,44 @@ class SkelModelSubmeshEntry:
       _v = []
       _n = []
       self.faces = []
-      flip = True
+      self.vert_skips = []
       for v in range(self.vertex_count):
         #print("Vertex %d offset: %08x" % (v, self.data.tell()))
         for p in range(3): _v.append(sread_float(self.data, self.data.tell()))
-        #self.data.seek(self.data.tell() + 0x4)
-        face_data = sread_u32(self.data, self.data.tell())
+        face_data = sread_u32(self.data, self.data.tell()) # question mark
         for n in range(3): _n.append(sread_float(self.data, self.data.tell()))
-        self.data.seek(self.data.tell() + 0x2 * 2)
+        self.data.seek(self.data.tell() + 0x2 * 2) # skeleton related I believe
+        self.vert_skips.append(face_data)
         #if v >= 2:
-        #  flip = self.add_face(self.faces, v, face_data, flip)
+        #  self.add_face(self.faces, v, face_data)
       self.vertices = [_v[i:i+3] for i in range(0, len(_v), 3)]
       self.normals = [_n[i:i+3] for i in range(0, len(_n), 3)]
       
       _f = []
       for s in range(self.strip_count):
-        sub_strip = sread_u32(self.data, self.data.tell())
-        self.strip_counts.append(sub_strip)
-        #print("Substrip count: %d" % sub_strip)
-        for ss in range(sub_strip):
-          _f.append((read_u16(self.data, self.data.tell()) >> 0x5) >> 0x5)
-          _f.append(read_u16(self.data, self.data.tell()))
+        strip_len = sread_u32(self.data, self.data.tell())
+        self.strip_counts.append(strip_len)
+        #print("Substrip count: %d" % strip_len)
+        for ss in range(strip_len):
+          _f.append(sread_u16(self.data, self.data.tell()) >> 4)
+          _f.append(sread_u16(self.data, self.data.tell()))
           #self.data.seek(self.data.tell() + 0x2 * 2) # 2 byte vertex index (index * 0x20), 2 byte winding indicator
       self.face_data = [_f[i:i+2] for i in range(0, len(_f), 2)]
-      #for f in range(len(self.face_data)):
-      #  flip = self.add_face(self.faces, self.face_data[f][0], self.face_data[f][1], flip)
-        #flip = self.reset_winding(self.face_data[f][1], flip)
+      _v = []
+      _n = []
+      for f in range(len(self.face_data)):
+        self.add_face(self.faces, self.face_data[f][0], self.face_data[f][1])
       #print(self.faces)
     
-    def add_face(self, faces, fc, face_data, flip):
-      if (face_data & 0x8000): return True#flip
+    def add_face(self, faces, fc, face_data):
+      if (face_data & 0x8000): return
       fa = max(0, fc - 2)
       fb = max(0, fc - 1)
       flip = (fc % 2) != 0
       if fc >= 2:
         if not flip: faces.append([fa, fb, fc])
         else: faces.append([fb, fa, fc])#([fa, fc, fb])
-      return not flip
+      return
     
     #def add_face(self, faces, fc, face_data, flip):
     #  if (face_data & 0x8000): return flip
@@ -190,8 +193,8 @@ class SkelModelSubmeshEntry:
     for i in range(self.geom_count):
       geom = self.geometry[i]
       adjusted_indices = geom.faces.copy()
-      for j in range(len(adjusted_indices)):
-        for k in range(3): adjusted_indices[j][k] += start_offset + added_offset
+      #for j in range(len(adjusted_indices)):
+      #  for k in range(3): adjusted_indices[j][k] += start_offset + added_offset
       added_offset += geom.vertex_count
       if i == 0:
         submesh_vertices = geom.vertices.copy()
@@ -237,37 +240,60 @@ class SkeletonEntry:
     self.entry_offset = self.data.tell()
     self.block_size = sread_u32(self.data, self.data.tell())
     self.bone_count = sread_u32(self.data, self.data.tell())
-    self.bones = []
-    for i in range(self.bone_count):
-      bone_entry_offset = self.data.tell()
-      bone = BoneEntry(self.name, self.data, self.entry_offset, bone_entry_offset)
-      self.bones.append(bone)
+    self.bones = [None]*self.bone_count
+    self.root = BoneEntry(self.data, self.bones)
+    #for i in range(self.bone_count):
+    #  bone = BoneEntry(self.data)
+    #  self.bones.append(bone)
 
 class BoneEntry:
-  def __init__(self, skeleton_name, data, skeleton_block, entry_offset):
-    self.skeleton_block = skeleton_block
+  def __init__(self, data, bones, parent=None):
     self.data = data
-    self.entry_offset = entry_offset
+    self.entry_offset = self.data.tell()
+
     self.bone_index = sread_u32(self.data, self.entry_offset)
+    if self.bone_index == 0xFFFFFFFF: return
+    #print(self.bone_index)
+    bones[self.bone_index] = self
+
+    _m = [sread_float(self.data, self.data.tell()) for _ in range(4 * 4)]
+    _m = [_m[i:i+4] for i in range(0, len(_m), 4)]
+    self.transform = Matrix(_m).transposed()
     
     self.floats = []
     for i in range(3):
       self.floats.append(sread_float(self.data, self.data.tell()))
     
-    _m = [sread_float(self.data, self.data.tell()) for _ in range(4 * 4)]
-    _m = [_m[i:i+4] for i in range(0, len(_m), 4)]
-    self.transform = Matrix(_m).transposed()
+    sread_u32(self.data, self.data.tell())
     
-    self.unknown = sread_u32(self.data, self.entry_offset + 20 * 0x4)
-    print(skeleton_name + " Bone #" + str(self.bone_index) + " Unk: " + str(self.unknown))
-    #print(self.transform)
-    #print(self.floats)
-    
-    #Handle padding
-    padding_check = sread_s32(self.data, self.data.tell())
-    while padding_check == -1:
-      padding_check = sread_s32(self.data, self.data.tell())
-    self.data.seek(self.data.tell() - 0x4)
+    self.parent = parent
+    self.child_2 = BoneEntry(data, bones, self)
+    self.child_1 = BoneEntry(data, bones, self)
+  
+  #def __init__(self, skeleton_name, data, skeleton_block, entry_offset):
+  #  self.skeleton_block = skeleton_block
+  #  self.data = data
+  #  self.entry_offset = entry_offset
+  #  self.bone_index = sread_u32(self.data, self.entry_offset)
+  #  
+  #  _m = [sread_float(self.data, self.data.tell()) for _ in range(4 * 4)]
+  #  _m = [_m[i:i+4] for i in range(0, len(_m), 4)]
+  #  self.transform = Matrix(_m).transposed()
+  # 
+  #  self.floats = []
+  # for i in range(3):
+  #   self.floats.append(sread_float(self.data, self.data.tell()))
+  #
+  #  self.unknown = sread_u32(self.data, self.entry_offset + 20 * 0x4)
+  #  print(skeleton_name + " Bone #" + str(self.bone_index) + " Unk: " + str(self.unknown))
+  #  #print(self.transform)
+  #  #print(self.floats)
+  # 
+  #  #Handle padding
+  #  padding_check = sread_s32(self.data, self.data.tell())
+  # while padding_check == -1:
+  #   padding_check = sread_s32(self.data, self.data.tell())
+  # self.data.seek(self.data.tell() - 0x4)
 
 class CyclesEntry:
   def __init__(self, data, name, bone_count):

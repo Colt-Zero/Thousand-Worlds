@@ -15,59 +15,101 @@ def load_adef(path):
   return adef
 
 class LevelMaterialsEntry:
-  def __init__(self, data):
+  def __init__(self, data = None):
     self.data = data
+    self.entry_offset = 0
+    self.block_size = 0
+    self.count = 0
+    self.materials = []
+    if self.data == None: return
+
     self.entry_offset = self.data.tell()
     self.block_size = sread_u32(self.data, self.data.tell())
     self.count = sread_u32(self.data, self.data.tell())
-    self.materials = []
     #print("Mat section beginning: %08x" % self.entry_offset)
     for i in range(self.count):
-      self.materials.append(LevelMaterialEntry(self.data))
+      self.materials.append(LevelMaterialEntry(mat_data=self.data))
     
     self.data.seek(self.block_size + 0x4 + self.entry_offset)
+  
+  def save_changes(self):
+    output = BytesIO()
+    write_magic_str(output, output.tell(), "MAT ", 4)
+    write_u32(output, output.tell(), 0)
+    write_u32(output, output.tell(), swap32(len(self.materials)))
+    for material in self.materials:
+      output.write(material.save_changes().read())
+    self.block_size = data_len(output) - 0x8
+    write_u32(output, 0x4, swap32(self.block_size))
+    output.seek(0)
+    return output
 
 class LevelMaterialEntry:
   class LevelMaterialDataEntry:
-    def __init__(self, texture_index, unk_b1, unk_b2, unk_b3):
+    def __init__(self, texture_index, unk_b1 = 0, unk_b2 = 0, unk_b3 = 0):
       self.texture_index = texture_index
       self.unk_b1 = unk_b1
       self.unk_b2 = unk_b2
       self.unk_b3 = unk_b3
   
-  def __init__(self, data):
-    self.data = data
+  def __init__(self, flags = 0, uv_maps = 0, normals = 0, mat_data = None):
+    self.data = mat_data
+    self.lod_flags = flags
+    self.mat_properties = 0
+    self.uv_maps = uv_maps
+    self.normals = normals
+    self.properties = []
+    if self.data == None: return
+
     self.lod_flags = sread_u32(self.data, self.data.tell())
     if (self.lod_flags & 0x7) == 0x7:
       print("Why the fuck are the LOD flags for this section set to no render")
-      self.lod_flags = 0
-    self.lod_flags = self.lod_flags & 0x7fffffff
+      #self.lod_flags = 0
+    #self.lod_flags = self.lod_flags & 0x7fffffff
     
     self.mat_properties = sread_u16(self.data, self.data.tell())
     self.uv_maps = sread_u16(self.data, self.data.tell())
     self.normals = sread_u16(self.data, self.data.tell())
-    self.properties = []
     #print("Mat properties len: " + str(self.mat_properties))
     for i in range(self.mat_properties):
       #print("Mat property entry: %08x" % self.data.tell())
-      mat_data = self.LevelMaterialDataEntry(sread_u16(self.data, self.data.tell()), read_u8(self.data, self.data.tell()), read_u8(self.data, self.data.tell()), read_u8(self.data, self.data.tell()))
-      #print("Material Property - Texture: " + textures[mat_data.texture_index].name + " Unk_Bytes: " + hex(mat_data.unk_b1) + " " + hex(mat_data.unk_b2) + " " + hex(mat_data.unk_b3))
-      self.properties.append(mat_data)
+      prop_data = self.LevelMaterialDataEntry(sread_u16(self.data, self.data.tell()), read_u8(self.data, self.data.tell()), read_u8(self.data, self.data.tell()), read_u8(self.data, self.data.tell()))
+      #print("Material Property - Texture: " + textures[prop_data.texture_index].name + " Unk_Bytes: " + hex(prop_data.unk_b1) + " " + hex(prop_data.unk_b2) + " " + hex(prop_data.unk_b3))
+      self.properties.append(prop_data)
     
     self.unk_4 = 0
     if self.mat_properties != 0:
       if self.properties[0].unk_b2 != 0:
-        self.lod_flags = self.lod_flags | 0x80000000
+        self.lod_flags = self.lod_flags# | 0x80000000
     #print("Material Lod Flags: " + hex(self.lod_flags))
   
+  def add_property(self, texture_index = 0xffff, b1 = 0, b2 = 0, b3 = 0):
+    prop = self.LevelMaterialDataEntry(texture_index, b1, b2, b3)
+    self.properties.append(prop)
+    self.mat_properties = len(self.properties)
+  
+  def save_changes(self):
+    output = BytesIO()
+    write_u32(output, output.tell(), swap32(self.lod_flags))
+    write_u16(output, output.tell(), swap16(self.mat_properties))
+    write_u16(output, output.tell(), swap16(self.uv_maps))
+    write_u16(output, output.tell(), swap16(self.normals))
+    for prop in self.properties:
+      write_u16(output, output.tell(), swap16(prop.texture_index))
+      write_u8(output, output.tell(), prop.unk_b1)
+      write_u8(output, output.tell(), prop.unk_b2)
+      write_u8(output, output.tell(), prop.unk_b3)
+    output.seek(0)
+    return output
+
   def printInfo(self, textures):
     print("Material properties: %d UV Maps: %d Normals: %d" % (self.mat_properties, self.uv_maps, self.normals))
     for i in range(self.mat_properties):
-      mat_data = self.properties[i]
+      prop_data = self.properties[i]
       textureName = "None"
-      if mat_data.texture_index != 0xFF:
-        textureName = textures[mat_data.texture_index].name
-      print("Material Property - Texture: " + textureName + " Unk_Bytes: " + hex(mat_data.unk_b1) + " " + hex(mat_data.unk_b2) + " " + hex(mat_data.unk_b3))
+      if prop_data.texture_index != 0xFF:
+        textureName = textures[prop_data.texture_index].name
+      print("Material Property - Texture: " + textureName + " Unk_Bytes: " + hex(prop_data.unk_b1) + " " + hex(prop_data.unk_b2) + " " + hex(prop_data.unk_b3))
 
 class GeometrySection:
   def __init__(self, data, versionNo, materials):
@@ -313,7 +355,7 @@ class RenderSection:
     self.submeshes = []
     for mat_index in mesh_data:
       geom = RenderedGeometry()
-      geom.inject_changes(mat_index, mesh_data[mat_index], materials)
+      geom.inject_changes(mat_index, mesh_data[mat_index], materials, self.color_maps)
       self.submeshes.append(geom)
   
   def save_changes(self):
@@ -330,7 +372,8 @@ class RenderSection:
   def get_section_geometry(self):
     material_uvs = {}
     section_colors = None
-    if self.color_maps > 0: section_colors = [[] for _ in range(self.color_maps)]
+    if self.color_maps > 0:
+      section_colors = [] #[[] for _ in range(self.color_maps)]
     added_offset = 0
     uv_offset = 0
     face_offset = 0
@@ -345,12 +388,16 @@ class RenderSection:
         section_vertices = submesh_vertices.copy()
         section_normals = submesh_normals.copy()
         section_faces = adjusted_indices
-        for sc, submesh_color in enumerate(submesh_colors): section_colors[sc].extend(submesh_color)
+        for sc, submesh_color in enumerate(submesh_colors):
+          while sc >= len(section_colors): section_colors.append([])
+          section_colors[sc].extend(submesh_color)
       else:
         section_vertices.extend(submesh_vertices)
         section_normals.extend(submesh_normals)
         section_faces.extend(adjusted_indices)
-        for sc, submesh_color in enumerate(submesh_colors): section_colors[sc].extend(submesh_color)
+        for sc, submesh_color in enumerate(submesh_colors):
+          while sc >= len(section_colors): section_colors.append([])
+          section_colors[sc].extend(submesh_color)
       #vertex_groups.append(adjusted_indices_flat)
       added_offset += len(submesh_vertices)
       face_offset += len(submesh_faces)
@@ -410,11 +457,14 @@ class RenderedGeometry:
       for m in range(material.mat_properties):
         for vc in range(color_maps):
           for v in range(self.vertex_count):
-            self.colors[vc].append([read_u8(self.data, self.data.tell()) for c in range(4)])
+            self.colors[vc].append([read_u8(self.data, self.data.tell()) for c in range(3)] +
+                                   [read_u8(self.data, self.data.tell())])# << 1])
       for c, colors in enumerate(self.colors):
         if len(colors) < 1: break
         self.color_maps[c] = []
-        for face in self.faces: self.color_maps[c].extend([list((Vector(colors[face[0]]) / 255.0)[:]), list((Vector(colors[face[1]]) / 255.0)[:]), list((Vector(colors[face[2]]) / 255.0)[:])])
+        for face in self.faces: self.color_maps[c].extend([list((Vector(colors[face[0]]) / 255.0)[:]),
+                                                           list((Vector(colors[face[1]]) / 255.0)[:]),
+                                                           list((Vector(colors[face[2]]) / 255.0)[:])])
       
       self.uv_maps = None
       if material.uv_maps > 0:
@@ -463,7 +513,9 @@ class RenderedGeometry:
       for c, colors in enumerate(self.colors):
         if len(colors) < 1: break
         self.color_maps[c] = []
-        for face in self.faces: self.color_maps[c].extend([list((Vector(colors[face[0]]) / 255.0)[:]), list((Vector(colors[face[1]]) / 255.0)[:]), list((Vector(colors[face[2]]) / 255.0)[:])])
+        for face in self.faces: self.color_maps[c].extend([list((Vector(colors[face[0]]) / 255.0)[:]),
+                                                           list((Vector(colors[face[1]]) / 255.0)[:]),
+                                                           list((Vector(colors[face[2]]) / 255.0)[:])])
       
       self.uv_maps = None
       if material.uv_maps > 0:
@@ -495,7 +547,8 @@ class RenderedGeometry:
       
       for color_map in self.colors:
         for color in color_map:
-          for c8 in color: write_u8(output, output.tell(), c8)
+          for c8 in color[0:3]: write_u8(output, output.tell(), c8)
+          write_u8(output, output.tell(), color[3])# >> 1)
       
       if self.uvs != None:
         for uv_map in self.uvs:
@@ -555,10 +608,37 @@ class RenderedGeometry:
     self.material = materials[self.material_index]
     self.geom_count = len(mesh_data)
     self.geometry = []
-    for strip_data in mesh_data:
+    for group_index in mesh_data.keys():
+      group_data = mesh_data[group_index]
+      verts = []
+      norms = []
+      uvs = []
+      cols = []
+      for v_data, n_data, uv_data, col_data in group_data:
+        vert_len = len(verts) + len(v_data)
+        if vert_len > 64 or len(verts) == 64:
+          strip_data = (verts, norms, uvs, cols)
+          geom = self.GeomEntry()
+          geom.inject_changes(strip_data, self.material)
+          self.geometry.append(geom)
+          verts = []
+          norms = []
+          uvs = []
+          cols = []
+        verts.extend(v_data)
+        norms.extend(n_data)
+        for uv_chan, uv in enumerate(uv_data):
+          while uv_chan >= len(uvs): uvs.append([])
+          uvs[uv_chan].extend(uv)
+        for col_chan, col in enumerate(col_data):
+          while col_chan >= len(cols): cols.append([])
+          cols[col_chan].extend(col)
+      strip_data = (verts, norms, uvs, cols)
+      #for strip_data in group_data:
       geom = self.GeomEntry()
       geom.inject_changes(strip_data, self.material)
       self.geometry.append(geom)
+    self.geom_count = len(self.geometry)
   
   def save_changes(self):
     output = BytesIO()
@@ -573,7 +653,8 @@ class RenderedGeometry:
     added_offset = 0
     submesh_uvs = []
     if self.color_maps > 0:
-      submesh_colors = [[] for _ in range(self.color_maps)]
+      #submesh_colors = [[] for _ in range(self.color_maps)]
+      submesh_colors = []
     else: submesh_colors = []
     vertex_groups = []
     for i, geom in enumerate(self.geometry):
@@ -585,7 +666,9 @@ class RenderedGeometry:
         submesh_vertices = geom.vertices.copy()
         submesh_normals = geom.normals.copy()
         submesh_indices = adjusted_indices
-        for c, col in enumerate(geom.color_maps): submesh_colors[c].extend(col)
+        for c, col in enumerate(geom.color_maps):
+          while c >= len(submesh_colors): submesh_colors.append([])
+          submesh_colors[c].extend(col)
         if geom.uv_maps != None:
           for m in range(len(geom.uv_maps)):#self.material.mat_properties):
             uv_index = m
@@ -596,7 +679,9 @@ class RenderedGeometry:
         submesh_vertices.extend(geom.vertices)
         submesh_normals.extend(geom.normals)
         submesh_indices.extend(adjusted_indices)
-        for c, col in enumerate(geom.color_maps): submesh_colors[c].extend(col)
+        for c, col in enumerate(geom.color_maps):
+          while c >= len(submesh_colors): submesh_colors.append([])
+          submesh_colors[c].extend(col)
         if geom.uv_maps != None:
           for m in range(len(geom.uv_maps)):#self.material.mat_properties):
             uv_index = m

@@ -3,6 +3,8 @@ import os
 
 from fs_helpers import *
 
+from tp2 import reduce_colors
+
 class AnimatedTexturesEntry:
   def __init__(self, data, textures):
     self.data = data
@@ -49,6 +51,25 @@ class TextureListEntry:
         self.textures.append(texture)
         self.data.seek(texture_start + texture_size)
     self.data.seek(self.entry_offset + 0x4 + self.block_size)
+  
+  def add_texture(self, name, width, height, pixels):
+    tp2_data = reduce_colors(pixels, width, height, name)
+    tp2_size = data_len(tp2_data)
+    tp2_data.seek(0)
+    texture = TextureEntry(name, 0, 0, tp2_data, tp2_size)
+    self.textures.append(texture)
+  
+  def save_changes(self, magic = "TEXT"):
+    output = BytesIO()
+    write_magic_str(output, 0x0, magic, 4)
+    write_u32(output, output.tell(), 0)
+    write_u32(output, output.tell(), swap32(len(self.textures)))
+    for texture in self.textures:
+      output.write(texture.read().read())
+    self.block_size = data_len(output) - 0x8
+    write_u32(output, 0x4, swap32(self.block_size))
+    output.seek(0)
+    return output
 
 class TextureEntry:
   def __init__(self, name, texture_block, entry_offset, data, data_size):

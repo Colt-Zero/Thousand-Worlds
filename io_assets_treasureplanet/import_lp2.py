@@ -638,7 +638,7 @@ def load_lp2(data, name, adef, asset_root):
             for u, mat_uv in enumerate(uv_map): uv_layers[lay].data[offset+u].uv = mat_uv
           
           lp2_material = materials.materials[mat_index]
-          if lp2_material.properties[0].texture_index < 0xff:
+          if lp2_material.properties[0].texture_index < 0xffff:
             if not mat_index in bpy_materials:
               image = textures[lp2_material.properties[0].texture_index]
               bpy_material = bpy.data.materials.new(name="LP2 Material %03d" % mat_index)#image.name)
@@ -658,6 +658,13 @@ def load_lp2(data, name, adef, asset_root):
               bpy_materials[mat_index] = bpy_material
             else: bpy_material = bpy_materials[mat_index]
             
+            bpy_material["flags"] = lp2_material.lod_flags
+            bpy_material["uvs"] = lp2_material.uv_maps
+            bpy_material["normals"] = lp2_material.normals
+            for prop, mat_property in enumerate(lp2_material.properties):
+              if mat_property.texture_index < 0xffff: bpy_material["prop_%d_texture"%prop] = textures[mat_property.texture_index].name
+              bpy_material["prop_%d"%prop] = Vector([mat_property.texture_index, mat_property.unk_b1, mat_property.unk_b2, mat_property.unk_b3])
+
             if not mat_index in per_mesh_materials:
               bpy_index = len(mesh.materials)
               per_mesh_materials[mat_index] = bpy_index
@@ -669,6 +676,7 @@ def load_lp2(data, name, adef, asset_root):
         
         if rendSect.color_maps > 0:
           for section_color in section_colors:
+            if len(section_color) == 0: continue
             vcol_lay = mesh.vertex_colors.new()
             for sc, col in enumerate(vcol_lay.data):
               col.color = list(reversed(section_color[sc][0:3])) + [section_color[sc][3]]

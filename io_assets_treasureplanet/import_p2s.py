@@ -78,7 +78,7 @@ def load_p2s(data, name):
         obj = bpy.data.objects.new("%s Bone %d" % (name, bone.bone_index), None)
         bpy.context.collection.objects.link(obj)
         obj.empty_display_type = 'SINGLE_ARROW'
-        obj.matrix_world = Euler((math.radians(90), 0, 0)).to_matrix().to_4x4() @ bone.transform
+        obj.matrix_world =  Euler((math.radians(90), 0, 0)).to_matrix().to_4x4() @ bone.transform #Matrix.Translation(bone.floats)
     elif key == "CYCL":
       data.seek(block)
       P2SCycles = CyclesEntry(data, name, P2SSkeleton.bone_count)
@@ -86,20 +86,21 @@ def load_p2s(data, name):
       data.seek(block)
       P2SModel = SkelModelEntry(data)
       for i in range(P2SModel.mesh_count):
-        mesh_vertices, mesh_normals, mesh_faces, lod_radii = P2SModel.get_model_geometry(i)
-        mesh = bpy.data.meshes.new(name="%s_lod%d" % (name, i))
-        mesh.from_pydata(mesh_vertices, [], mesh_faces)
-        mesh.update()
-        mesh.validate()
-        obj = bpy.data.objects.new("%s_lod%d" % (name, i), mesh)
-        for r, lod_radius in enumerate(lod_radii):
-          obj.data["sub%d_lod_radius"%r] = lod_radius
-        
-        bpy.context.collection.objects.link(obj)
-        #bpy.context.view_layer.objects.active = obj
-        obj.data["P2S-Version"] = p2s_version
-        obj.rotation_euler = [math.radians(90), 0, 0]
-        #models.append(obj)
+        geometry, lod_radii = P2SModel.get_model_geometry(i)
+        for s, (mesh_vertices, mesh_normals, mesh_faces) in enumerate(geometry):
+          mesh = bpy.data.meshes.new(name="%s_lod%d_%d" % (name, i, s))
+          mesh.from_pydata(mesh_vertices, [], mesh_faces)
+          mesh.update()
+          mesh.validate()
+          obj = bpy.data.objects.new("%s_lod%d_%d" % (name, i, s), mesh)
+          for r, lod_radius in enumerate(lod_radii):
+            obj.data["sub%d_lod_radius"%r] = lod_radius
+          
+          bpy.context.collection.objects.link(obj)
+          #bpy.context.view_layer.objects.active = obj
+          obj.data["P2S-Version"] = p2s_version
+          obj.rotation_euler = [math.radians(90), 0, 0]
+          #models.append(obj)
   
   print(blocks)
 

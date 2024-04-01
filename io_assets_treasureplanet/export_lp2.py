@@ -13,7 +13,7 @@ from mathutils import Vector, Matrix, Quaternion, Euler
 from fs_helpers import *
 from adef import ActorStringsEntry
 from textures import TextureListEntry, AnimatedTexturesEntry
-from lp2 import LightsEntry, SplineListEntry, AIMapListEntry, ActorInfoListEntry, Models, LevelModelInstance, LevelMaterialsEntry, GeometrySection, RenderSection, load_adef
+from lp2 import LightsEntry, SplineListEntry, AIMapListEntry, ActorInfoListEntry, Models, LevelModelInstance, LevelMaterialsEntry, GeometrySection, RenderSection, load_adef, LevelMaterialEntry
 from tristripper import TriangleStripper, PrimitiveType, triangle_from_strip_to_triangle_list
 
 try:
@@ -121,9 +121,9 @@ def extract_blender_render(rendOb):
   minX = sys.maxsize
   minY = sys.maxsize
   minZ = sys.maxsize
-  maxX = sys.maxsize - 1
-  maxY = sys.maxsize - 1
-  maxZ = sys.maxsize - 1
+  maxX = -sys.maxsize - 1
+  maxY = -sys.maxsize - 1
+  maxZ = -sys.maxsize - 1
   
   mesh_sections = {}
   for face in bm.faces:
@@ -141,113 +141,122 @@ def extract_blender_render(rendOb):
     
     materialName = materials[face.material_index].name
     if not materialName in mesh_sections:
-      mesh_sections[materialName] = []
-    mesh_sections[materialName].append(face)
+      mesh_sections[materialName] = {}
+    if not groupIndex in mesh_sections[materialName]:
+      mesh_sections[materialName][groupIndex] = []
+    mesh_sections[materialName][groupIndex].append(face)
   
   for mat in mesh_sections.keys():
     materialGroup = mesh_sections[mat]
-    indices = [vert.index for face in materialGroup for vert in face.verts]
-    indexDict = {vert.index: vert for face in materialGroup for vert in face.verts}
-    stripper = TriangleStripper(indices)
-    stripOutput = stripper.Strip()
-    primStrips = []
-    for primGroup in stripOutput:
-      stripIndices = primGroup.indices
-      if primGroup.type == PrimitiveType.TRIANGLES:
-        stripIndices = [stripIndices[p:p+3] for p in range(0, len(stripIndices), 3)]
-      else: stripIndices = [stripIndices]
-      primStrips.extend(stripIndices)
+    for group in materialGroup.keys():
+      vertexGroup = materialGroup[group]
+      indices = [vert.index for face in vertexGroup for vert in face.verts]
+      indexDict = {vert.index: vert for face in vertexGroup for vert in face.verts}
+      stripper = TriangleStripper(indices)
+      stripOutput = stripper.Strip()
+      primStrips = []
+      for primGroup in stripOutput:
+        stripIndices = primGroup.indices
+        if primGroup.type == PrimitiveType.TRIANGLES:
+          stripIndices = [stripIndices[p:p+3] for p in range(0, len(stripIndices), 3)]
+        else: stripIndices = [stripIndices]
+        primStrips.extend(stripIndices)
     
-    strips = []
-    for primStrip in primStrips:
-      strip = []
-      for v, vindex in enumerate(primStrip):
-        skipDraw = 0 if v > 1 else 1
-        flag = skipDraw << 0xf
-        vert = indexDict[vindex]
-        stripTri = triangle_from_strip_to_triangle_list(v, primStrip)
-        
-        colDict = {}
-        uvDict = {}
-        for loop in vert.link_loops:
-          for col_lay in col_lays:
-            layer = bm.loops.layers.color[col_lay]
-            col = loop[layer][:]#.color[:]
-            if not col_lay in colDict: colDict[col_lay] = {}
-            if not col in colDict[col_lay]: colDict[col_lay][col] = []
-            colDict[col_lay][col].append(loop)
+      strips = []
+      for primStrip in primStrips:
+        strip = []
+        for v, vindex in enumerate(primStrip):
+          skipDraw = 0 if v > 1 else 1
+          flag = (skipDraw << 0xf)# | 1
+          vert = indexDict[vindex]
+          stripTri = triangle_from_strip_to_triangle_list(v, primStrip)
           
+          colDict = {}
+          uvDict = {}
+          for loop in vert.link_loops:
+            for col_lay in col_lays:
+              layer = bm.loops.layers.color[col_lay]
+              col = loop[layer][:]#.color[:]
+              if not col_lay in colDict: colDict[col_lay] = {}
+              if not col in colDict[col_lay]: colDict[col_lay][col] = []
+              colDict[col_lay][col].append(loop)
+            
+            for uv_lay in uv_lays:
+              layer = bm.loops.layers.uv[uv_lay]
+              uv = loop[layer].uv[:]
+              if not uv_lay in uvDict: uvDict[uv_lay] = {}
+              if not uv in uvDict[uv_lay]: uvDict[uv_lay][uv] = []
+              uvDict[uv_lay][uv].append(loop)
+          
+          outColors = {}
+          for col_lay in col_lays:
+            bestScore = 0
+            chosenCol = list(colDict[col_lay].keys())[0]
+            for col in colDict[col_lay].keys():
+              for loop in colDict[col_lay][col]:
+                score = len([fvert.index for fvert in loop.face.verts if fvert.index in stripTri])
+                if score > bestScore:
+                  chosenCol = col
+                  bestScore = score
+                if score == 3: break
+              if bestScore == 3: break
+            outColors[col_lay] = chosenCol
+          
+          outUVs = {}
           for uv_lay in uv_lays:
-            layer = bm.loops.layers.uv[uv_lay]
-            uv = loop[layer].uv[:]
-            if not uv_lay in uvDict: uvDict[uv_lay] = {}
-            if not uv in uvDict[uv_lay]: uvDict[uv_lay][uv] = []
-            uvDict[uv_lay][uv].append(loop)
-        
-        outColors = {}
-        for col_lay in col_lays:
-          bestScore = 0
-          chosenCol = list(colDict[col_lay].keys())[0]
-          for col in colDict[col_lay].keys():
-            for loop in colDict[col_lay][col]:
-              score = len([fvert.index for fvert in loop.face.verts if fvert.index in stripTri])
-              if score > bestScore:
-                chosenCol = col
-                bestScore = score
-              if score == 3: break
-            if bestScore == 3: break
-          outColors[col_lay] = chosenCol
-        
-        outUVs = {}
-        for uv_lay in uv_lays:
-          bestScore = 0
-          chosenUV = list(uvDict[uv_lay].keys())[0]
-          for uv in uvDict[uv_lay].keys():
-            for loop in uvDict[uv_lay][uv]:
-              score = len([fvert.index for fvert in loop.face.verts if fvert.index in stripTri])
-              if score > bestScore:
-                chosenUV = uv
-                bestScore = score
-              if score == 3: break
-            if bestScore == 3: break
-          outUVs[uv_lay] = chosenUV
-        
-        minX = min(vert.co[:][0], minX)
-        minY = min(vert.co[:][1], minY)
-        minZ = min(vert.co[:][2], minZ)
-        maxX = max(vert.co[:][0], maxX)
-        maxY = max(vert.co[:][1], maxY)
-        maxZ = max(vert.co[:][2], maxZ)
-        strip.append((vert.co[:], vert.normal[:], outUVs, outColors, flag))
-      strips.append(strip)
-    mesh_sections[mat] = strips
+            bestScore = 0
+            chosenUV = list(uvDict[uv_lay].keys())[0]
+            for uv in uvDict[uv_lay].keys():
+              for loop in uvDict[uv_lay][uv]:
+                score = len([fvert.index for fvert in loop.face.verts if fvert.index in stripTri])
+                if score > bestScore:
+                  chosenUV = uv
+                  bestScore = score
+                if score == 3: break
+              if bestScore == 3: break
+            outUVs[uv_lay] = chosenUV
+          
+          minX = min(vert.co[:][0], minX)
+          minY = min(vert.co[:][1], minY)
+          minZ = min(vert.co[:][2], minZ)
+          maxX = max(vert.co[:][0], maxX)
+          maxY = max(vert.co[:][1], maxY)
+          maxZ = max(vert.co[:][2], maxZ)
+          strip.append((vert.co[:], vert.normal[:], outUVs, outColors, flag))
+        strips.append(strip)
+      mesh_sections[mat][group] = strips
   
   mesh_data = {}
   for mat_name in mesh_sections.keys():
     mat_index = int(mat_name.split(" ")[-1])
-    og_strips = mesh_sections[mat_name]
-    new_strips = []
-    for strip in og_strips:
-      verts = []
-      normals = []
-      uvs = []
-      colors = []
-      for v_pos, v_nor, v_uvs, v_cols, strip_flag in strip:
-        verts.append((v_pos, strip_flag))
-        normals.append(v_nor)
-        for uv_index, v_uv in enumerate(v_uvs.keys()):
-          uv_ind = uv_index
-          if "." in v_uv: uv_ind = int(v_uv.split(".")[-1])
-          while uv_ind >= len(uvs): uvs.append([])
-          uvs[uv_ind].append(v_uvs[v_uv])
-        for col_index, v_col in enumerate(v_cols.keys()):
-          col_ind = col_index
-          if "." in v_col: col_ind = int(v_col.split(".")[-1])
-          while col_ind >= len(colors): colors.append([])
-          colors[col_ind].append(v_cols[v_col])
-      new_strips.append((verts, normals, uvs, colors))
-    if mat_index in mesh_data: mesh_data[mat_index].extend(new_strips)
-    else: mesh_data[mat_index] = new_strips
+    og = mesh_sections[mat_name]
+    for group_index in og.keys():
+      og_strips = og[group_index]
+      new_strips = []
+      for strip in og_strips:
+        verts = []
+        normals = []
+        uvs = []
+        colors = []
+        for v_pos, v_nor, v_uvs, v_cols, strip_flag in strip:
+          verts.append((v_pos, strip_flag))
+          normals.append(v_nor)
+          for uv_index, v_uv in enumerate(v_uvs.keys()):
+            uv_ind = uv_index
+            if "." in v_uv: uv_ind = int(v_uv.split(".")[-1])
+            while uv_ind >= len(uvs): uvs.append([])
+            uvs[uv_ind].append(v_uvs[v_uv])
+          for col_index, v_col in enumerate(v_cols.keys()):
+            col_ind = col_index
+            if "." in v_col: col_ind = int(v_col.split(".")[-1])
+            while col_ind >= len(colors): colors.append([])
+            colors[col_ind].append(v_cols[v_col])
+        new_strips.append((verts, normals, uvs, colors))
+      #if not mat_index in mesh_data: mesh_data[mat_index] = new_strips
+      #else: mesh_data[mat_index].extend(new_strips)
+      if not mat_index in mesh_data: mesh_data[mat_index] = {}
+      if not group_index in mesh_data[mat_index]: mesh_data[mat_index][group_index] = new_strips
+      else: mesh_data[mat_index][group_index].extend(new_strips)
   minVec = Vector([minX, minY, minZ])
   maxVec = Vector([maxX, maxY, maxZ])
   return minVec, maxVec, mesh_data, len(col_lays)
@@ -281,7 +290,7 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
   #  adef_data = BytesIO(f.read())
   #  adef_data.seek(0)
   #adef = Adef(adef_data)
-  
+  lp2name = os.path.splitext(os.path.basename(filepath))[0]
   lp2data = None
   if os.path.isfile(filepath):
     with open(filepath, 'rb') as f:
@@ -313,7 +322,7 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
   spline_data = None
   splines = SplineListEntry()
   light_data = None
-  
+  TP2Textures = None
   
   
   actors = ActorInfoListEntry(None, adef.classes, adef.enums, adef.strings, ActorStringsEntry(), ActorStringsEntry(), aimaps, splines, None)
@@ -324,9 +333,10 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
       lp2_version = sread_u32(lp2data, block + 0x4)
     elif key == "TEX ":
       lp2data.seek(block)
-      texture_block_size = sread_u32(lp2data, lp2data.tell())
-      lp2data.seek(block - 0x4)
-      texture_data = BytesIO(lp2data.read(texture_block_size + 0x8))
+      TP2Textures = TextureListEntry(block, lp2data, lp2name)
+      #texture_block_size = sread_u32(lp2data, lp2data.tell())
+      #lp2data.seek(block - 0x4)
+      #texture_data = BytesIO(lp2data.read(texture_block_size + 0x8))
     elif key == "MAT ":
       lp2data.seek(block)
       material_block_size = sread_u32(lp2data, lp2data.tell())
@@ -377,7 +387,8 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
       spln_block_size = sread_u32(lp2data, lp2data.tell())
       lp2data.seek(block - 0x4)
       spline_data = BytesIO(lp2data.read(spln_block_size + 0x8))
-      
+  
+  if materials == None: materials = LevelMaterialsEntry()
   
   if bpy.ops.object.mode_set.poll(): bpy.ops.object.mode_set(mode='OBJECT')
   if use_selection: obs = context.selected_objects
@@ -437,7 +448,8 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
   #for instance in geometry.model_instances:
   #  for rend_inst in instance.render_instances:
   #    rend_inst.sect_index
-      
+
+  blender_materials = []    
   
   dynamicInstances = []
   dynamicInstanceNames = [dynamic.name for dynamic in dynamicInstanceObjects]
@@ -465,32 +477,56 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
       elif child.data.name in rendMeshes:
         geoInst.sect_index = rendMeshes[child.data.name][1]
         if not geoInst.sect_index in dynamicRendMeshes:
+          blender_materials.extend(child.data.materials)
           dynamicRendMeshes[geoInst.sect_index] = extract_blender_render(rendMeshes[child.data.name][0])
         levelInst.render_instances.append(geoInst)
     levelInst.coll_inst_count = len(levelInst.collision_instances)
     levelInst.rend_inst_count = len(levelInst.render_instances)
   
-  for collName in collMeshes.keys():
-    collOb, collIndex = collMeshes[collName]
-    if not collIndex in dynamicCollMeshes: continue
-    
-    minVec, maxVec, collSection = dynamicCollMeshes[collIndex]
-    for groupName in collSection.keys():
-      if groupName == "verts": continue
-      group = collSection[groupName]
-      #print(group["verts"])
-      #print(group["edges"])
-      #print(group["faces"])
-  
   if save_mesh_changes:
+    for collName in collMeshes.keys():
+      collOb, collIndex = collMeshes[collName]
+      if not collIndex in dynamicCollMeshes: continue
+      
+      minVec, maxVec, collSection = dynamicCollMeshes[collIndex]
+      for groupName in collSection.keys():
+        if groupName == "verts": continue
+        group = collSection[groupName]
+        #print(group["verts"])
+        #print(group["edges"])
+        #print(group["faces"])
+    
+    blender_materials = list(set(blender_materials))
+    blender_materials = [m for m in blender_materials if int(m.name.split(" ")[-1]) >= len(materials.materials)]
+    material_textures = list(set([n.image for m in blender_materials for n in m.node_tree.nodes if n.type == 'TEX_IMAGE']))
+
+    texture_index = {}
+    for t, img in enumerate(material_textures):
+      imgw, imgh = img.size
+      imgdata = list(img.pixels)
+      imgpixels = [[int(imgdata[pxc + ipx] * 255) for pxc in range(img.channels)] for ipx in range(0, len(imgdata), img.channels)]
+      texture_index[img.name] = len(TP2Textures.textures)
+      TP2Textures.add_texture(img.name, imgw, imgh, imgpixels)
+    
+    for m, mat in enumerate(blender_materials):
+      output_material = LevelMaterialEntry(flags=0, uv_maps=1, normals=1)
+      for n in mat.node_tree.nodes:
+        if n.type != 'TEX_IMAGE': continue
+        output_material.add_property(texture_index[n.image.name], 0x20, 0x0, 0x1)
+      materials.materials.append(output_material)
+    
     for rendName in rendMeshes.keys():
       rendOb, rendIndex = rendMeshes[rendName]
       if not rendIndex in dynamicRendMeshes: continue
       minVec, maxVec, mesh_data, n_color_layers = dynamicRendMeshes[rendIndex]
+      out_bounds = []
+      for i in range(3):
+        out_bounds.append(minVec[i])
+        out_bounds.append(maxVec[i])
       while rendIndex >= len(geometry.render_sections):
         geometry.render_sections.append(RenderSection())
         geometry.render_sections[-1].save_changes()
-      geometry.render_sections[rendIndex].inject_changes(mesh_data, n_color_layers, minVec, maxVec, materials.materials)
+      geometry.render_sections[rendIndex].inject_changes(mesh_data, n_color_layers, out_bounds[0:3], out_bounds[3:6], materials.materials)
       geometry.render_sections[rendIndex].save_changes()
   
   aimapNames = [aimap.name for aimap in aimapObjects]
@@ -682,9 +718,11 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
   gmesh_data = BytesIO()
   write_magic_str(gmesh_data, 0x0, "GMSH", 4)
   write_u32(gmesh_data, 0x4, 0)
-  if texture_data != None: write_bytes(gmesh_data, gmesh_data.tell(), texture_data.read())
+  
+  if TP2Textures != None: write_bytes(gmesh_data, gmesh_data.tell(), TP2Textures.save_changes("TEX ").read())
   if anim_data != None: write_bytes(gmesh_data, gmesh_data.tell(), anim_data.read())
-  if material_data != None: write_bytes(gmesh_data, gmesh_data.tell(), material_data.read())
+  #if material_data != None: write_bytes(gmesh_data, gmesh_data.tell(), material_data.read())
+  if materials != None: write_bytes(gmesh_data, gmesh_data.tell(), materials.save_changes().read())
   geometry_data = None
   if geometry != None:
     if save_dynamic_instance_changes:
