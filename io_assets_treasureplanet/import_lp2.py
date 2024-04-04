@@ -30,7 +30,7 @@ from lp2 import LightsEntry, SplineListEntry, AIMapListEntry, ActorInfoListEntry
 import json
 
 def adef_loader():
-  path = os.path.join(current_dir.parent.absolute(), "tp_utils")
+  path = os.path.join(current_dir.absolute(), "tp_utils")
   return load_adef(path)
 
 def create_actor(adef, class_name, asset_root = None, transform=Matrix()):
@@ -407,7 +407,7 @@ def load_lp2(data, name, adef, asset_root):
       data.seek(block)
       actorList = ActorInfoListEntry(data, adef.classes, adef.enums, adef.strings, stringlists["ASTR"], stringlists["PSTR"], aimaps, splines, ModelDirectory)
       
-      enum_path = os.path.join(current_dir.parent.absolute(), "tp_utils")
+      enum_path = os.path.join(current_dir.absolute(), "tp_utils")
       enum_path = os.path.join(enum_path,'enums.json')
       if os.path.exists(enum_path):
         with open(enum_path, "r") as fp:
@@ -620,6 +620,8 @@ def load_lp2(data, name, adef, asset_root):
         mesh.validate()
         collisionMeshes.append((mesh, vertex_groups))
       
+      material_values = { "Material Flags": [], "Property B1": [], "Property B2": [], "Property UV": [] }
+
       bpy_materials = {}
       renderMeshes = []
       for r, rendSect in enumerate(geometry.render_sections):
@@ -661,9 +663,17 @@ def load_lp2(data, name, adef, asset_root):
             bpy_material["flags"] = lp2_material.lod_flags
             bpy_material["uvs"] = lp2_material.uv_maps
             bpy_material["normals"] = lp2_material.normals
+            material_values["Material Flags"].append(lp2_material.lod_flags)
             for prop, mat_property in enumerate(lp2_material.properties):
               if mat_property.texture_index < 0xffff: bpy_material["prop_%d_texture"%prop] = textures[mat_property.texture_index].name
               bpy_material["prop_%d"%prop] = Vector([mat_property.texture_index, mat_property.unk_b1, mat_property.unk_b2, mat_property.unk_b3])
+              material_values["Property B1"].append(mat_property.unk_b1)
+              material_values["Property B2"].append(mat_property.unk_b2)
+              material_values["Property UV"].append(mat_property.unk_b3)
+            material_values["Material Flags"] = list(set(material_values["Material Flags"]))
+            material_values["Property B1"] = list(set(material_values["Property B1"]))
+            material_values["Property B2"] = list(set(material_values["Property B2"]))
+            material_values["Property UV"] = list(set(material_values["Property UV"]))
 
             if not mat_index in per_mesh_materials:
               bpy_index = len(mesh.materials)
@@ -685,6 +695,9 @@ def load_lp2(data, name, adef, asset_root):
         mesh.validate()
         renderMeshes.append((mesh, vertex_groups))
       
+      #print(material_values)
+      #{'Material Flags': [0, 1, 3, 4, 6], 'Property B1': [32, 113, 40, 96], 'Property B2': [0, 1, 3, 4, 5], 'Property UV': [0, 1, 2]}
+
       renderMeshObjects = {}
       
       for i, inst in enumerate(geometry.model_instances):

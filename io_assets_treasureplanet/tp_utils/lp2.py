@@ -76,6 +76,23 @@ class LevelMaterialEntry:
       prop_data = self.LevelMaterialDataEntry(sread_u16(self.data, self.data.tell()), read_u8(self.data, self.data.tell()), read_u8(self.data, self.data.tell()), read_u8(self.data, self.data.tell()))
       #print("Material Property - Texture: " + textures[prop_data.texture_index].name + " Unk_Bytes: " + hex(prop_data.unk_b1) + " " + hex(prop_data.unk_b2) + " " + hex(prop_data.unk_b3))
       self.properties.append(prop_data)
+
+      #first byte:
+      #local_c0[1]
+      #boolean impact:
+      #local_c0[0] 0 or 1
+      #local_b0 0 or 1 -> 0x5000c or 0x5000d
+      #local_ac 0 or 1
+      #local_a8 0 or 5
+      #
+      #second byte:
+      #local_c0[2]
+      #boolean impact:
+      #local_c0[0] 0 or 0x400
+      #local_c0[3] 0 or 1 
+      #local_b0 0 or 1 -> 0x5000c or 0x5000d
+      #local_ac 0 or 1
+      #local_a4 0 or 0x40
     
     self.unk_4 = 0
     if self.mat_properties != 0:
@@ -107,7 +124,7 @@ class LevelMaterialEntry:
     for i in range(self.mat_properties):
       prop_data = self.properties[i]
       textureName = "None"
-      if prop_data.texture_index != 0xFF:
+      if prop_data.texture_index != 0xFFFF:
         textureName = textures[prop_data.texture_index].name
       print("Material Property - Texture: " + textureName + " Unk_Bytes: " + hex(prop_data.unk_b1) + " " + hex(prop_data.unk_b2) + " " + hex(prop_data.unk_b3))
 

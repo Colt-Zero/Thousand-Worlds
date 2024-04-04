@@ -467,6 +467,7 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
       bbox_transpose = [[cor[co] for cor in bbox_corners] for co in range(3)]
       minVec = Vector([min(co) for co in bbox_transpose])
       maxVec = Vector([max(co) for co in bbox_transpose])
+      #TODO: Check how instance bounding boxes are supposed to be exported
       inst_index = 0xFFFFFFFF
       geoInst = levelInst.GeometryInstance(inst_index, 0, minVec, maxVec)
       if child.data.name in collMeshes:
