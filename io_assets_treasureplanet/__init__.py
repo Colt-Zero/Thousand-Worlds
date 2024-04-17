@@ -37,6 +37,12 @@ from bpy_extras.io_utils import (
   ExportHelper,
 )
 
+#import bpy
+#coll = bpy.context.view_layer.active_layer_collection.collection
+#for ob in bpy.context.scene.objects:
+#  if not coll in ob.users_collection: continue
+#  ob.hide_set(not ob.hide_get())
+
 class LP2Importer(bpy.types.Operator, ImportHelper):
   """Import LP2 Level"""
   bl_idname = "import_mesh.lp2"
@@ -85,9 +91,11 @@ class LP2Exporter(bpy.types.Operator, ExportHelper):
   filter_glob: StringProperty(default="*.LP2", options={'HIDDEN'})
   
   save_mesh_changes: BoolProperty(name="Save Level Meshes", description="Save Changes to Level Meshes", default=False)
+  save_collision_changes: BoolProperty(name="Save Collision Meshes", description="Save Changes to Collision Meshes", default=False)
   save_actor_changes: BoolProperty(name="Save Actors", description="Save Changes to Actors", default=True)
   save_dynamic_instance_changes: BoolProperty(name="Save Dynamic Instances", description="Save Changes to Dynamic Instances", default=True)
   save_spline_changes: BoolProperty(name="Save Splines", description="Save Changes to Splines", default=True)
+  save_light_changes: BoolProperty(name="Save Lights", description="Save changes to Lights", default=True)
   save_aimap_changes: BoolProperty(name="Save AI Maps", description="Save Changes to AI Maps", default=False)
   use_selection: BoolProperty(name="Selection Only", description="Export selected objects only", default=False)
   
@@ -138,9 +146,11 @@ class LP2_PT_export_options(bpy.types.Panel):
     operator = sfile.active_operator
     
     layout.prop(operator, "save_mesh_changes")
+    layout.prop(operator, "save_collision_changes")
     layout.prop(operator, "save_actor_changes")
     layout.prop(operator, "save_dynamic_instance_changes")
     layout.prop(operator, "save_spline_changes")
+    layout.prop(operator, "save_light_changes")
     layout.prop(operator, "save_aimap_changes")
     layout.prop(operator, "use_selection")
 

@@ -13,7 +13,7 @@ from mathutils import Vector, Matrix, Quaternion, Euler
 from fs_helpers import *
 from adef import ActorStringsEntry
 from textures import TextureListEntry, AnimatedTexturesEntry
-from lp2 import LightsEntry, SplineListEntry, AIMapListEntry, ActorInfoListEntry, Models, LevelModelInstance, LevelMaterialsEntry, GeometrySection, RenderSection, load_adef, LevelMaterialEntry
+from lp2 import LightsEntry, LightEntry, SplineListEntry, AIMapListEntry, ActorInfoListEntry, Models, LevelModelInstance, LevelMaterialsEntry, GeometrySection, RenderSection, CollisionSection, load_adef, LevelMaterialEntry
 from tristripper import TriangleStripper, PrimitiveType, triangle_from_strip_to_triangle_list
 
 try:
@@ -32,6 +32,12 @@ def extract_blender_collision(collOb):
   
   vertex_groups = collOb.vertex_groups
   deforms = bm.verts.layers.deform.values()
+  collision_layers = {}
+  for group in vertex_groups:
+    layer_name = group.name + "_layer"
+    if not layer_name in collOb: continue
+    collision_layers[int(group.name.replace("sub", ""))] = collOb[layer_name]
+  if not collision_layers: collision_layers[0] = [0x3e00]
   
   #bbox_corners = [Vector(corner) for corner in collOb.bound_box]
   #bbox_transpose = [[cor[co] for cor in bbox_corners] for co in range(3)]
@@ -40,9 +46,9 @@ def extract_blender_collision(collOb):
   minX = sys.maxsize
   minY = sys.maxsize
   minZ = sys.maxsize
-  maxX = sys.maxsize - 1
-  maxY = sys.maxsize - 1
-  maxZ = sys.maxsize - 1
+  maxX = -sys.maxsize - 1
+  maxY = -sys.maxsize - 1
+  maxZ = -sys.maxsize - 1
   
   sub_sections = {}
   for vert in bm.verts:
@@ -55,18 +61,18 @@ def extract_blender_collision(collOb):
     
     if groupIndex != -1:
       groupName = vertex_groups[groupIndex].name
-    elif len(vertex_groups) == 0: groupName = "sub0"
+    elif len(vertex_groups) == 0: groupIndex = 0
     else: continue
     
-    if not "verts" in sub_sections:
-      sub_sections["verts"] = {}
+    if not "verts" in sub_sections: sub_sections["verts"] = {}
+    if not groupIndex in sub_sections:
+      sub_sections[groupIndex] = {}
+    if not "verts" in sub_sections[groupIndex]:
+      sub_sections[groupIndex]["verts"] = []
     if not vert.index in sub_sections["verts"]:
-      sub_sections["verts"][vert.index] = groupName
-    if not groupName in sub_sections:
-      sub_sections[groupName] = {}
-    if not "verts" in sub_sections[groupName]:
-      sub_sections[groupName]["verts"] = []
-    sub_sections[groupName]["verts"].append(list(vert.co[:]) + [1.0])
+      sub_sections["verts"][vert.index] = (groupIndex, len(sub_sections[groupIndex]["verts"]))
+    sub_sections[groupIndex]["verts"].append(list(vert.co[:]) + [1.0])
+    
     minX = min(vert.co[:][0], minX)
     minY = min(vert.co[:][1], minY)
     minZ = min(vert.co[:][2], minZ)
@@ -75,32 +81,44 @@ def extract_blender_collision(collOb):
     maxZ = max(vert.co[:][2], maxZ)
   minVec = Vector([minX, minY, minZ])
   maxVec = Vector([maxX, maxY, maxZ])
-  
-  for face in bm.faces:
-    indices = []
-    for vert in face.verts:
-      groupName = sub_sections["verts"][vert.index]
-      indices.append(vert.index)
-    edge_indices = []
-    for edge in face.edges:
-      edge_indices.append(edge.index)
-    if not groupName in sub_sections:
-      sub_sections[groupName] = {}
-    if not "faces" in sub_sections[groupName]:
-      sub_sections[groupName]["faces"] = []
-    sub_sections[groupName]["faces"].append((indices, edge_indices, list(face.normal[:]) + [-face.normal.dot(face.calc_center_median())]))
-    
+
   for edge in bm.edges:
     indices = []
     for vert in edge.verts:
-      groupName = sub_sections["verts"][vert.index]
-      indices.append(vert.index)
-    if not groupName in sub_sections:
-      sub_sections[groupName] = {}
-    if not "edges" in sub_sections[groupName]:
-      sub_sections[groupName]["edges"] = []
-    sub_sections[groupName]["edges"].append(indices)
-    
+      groupIndex, vertIndex = sub_sections["verts"][vert.index]
+      indices.append(vertIndex)
+    if not "edges" in sub_sections: sub_sections["edges"] = {}
+    if not groupIndex in sub_sections:
+      sub_sections[groupIndex] = {}
+    if not "edges" in sub_sections[groupIndex]:
+      sub_sections[groupIndex]["edges"] = []
+    if not edge.index in sub_sections["edges"]:
+      sub_sections["edges"][edge.index] = len(sub_sections[groupIndex]["edges"])
+    sub_sections[groupIndex]["edges"].append(indices)
+
+  for face in bm.faces:
+    indices = []
+    for vert in face.verts:
+      groupIndex, vertIndex = sub_sections["verts"][vert.index]
+      indices.append(vertIndex)
+    edge_indices = []
+    for edge in face.edges:
+      edge_indices.append(sub_sections["edges"][edge.index])
+    if not groupIndex in sub_sections:
+      sub_sections[groupIndex] = {}
+    if not "faces" in sub_sections[groupIndex]:
+      sub_sections[groupIndex]["faces"] = []
+    vs = [v.co for v in face.verts]
+    edge1 = vs[1] - vs[0]
+    edge2 = vs[2] - vs[0]
+    face_dir = edge1.cross(edge2)
+    face_dir.normalized()
+    sub_sections[groupIndex]["faces"].append((indices, edge_indices, list(face_dir.normalized()[:]) + [face_dir.magnitude]))#list(face.normal[:]) + [0.75]))
+
+  del sub_sections["verts"]
+  del sub_sections["edges"]
+  for groupIndex in sub_sections.keys():
+    sub_sections[groupIndex]["layer"] = collision_layers[groupIndex]
   return minVec, maxVec, sub_sections
 
 def extract_blender_render(rendOb):
@@ -281,7 +299,7 @@ def find_blocks(data, blocks, offset=0):
       else:
         return
 
-def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True, save_dynamic_instance_changes=True, save_spline_changes=True, save_aimap_changes=False, use_selection=False):
+def save(context, filepath="", save_mesh_changes=False, save_collision_changes=False, save_actor_changes=True, save_dynamic_instance_changes=True, save_spline_changes=True, save_light_changes=True, save_aimap_changes=False, use_selection=False):
   #adef_data = None
   adef_path = os.path.join(current_dir.absolute(), "tp_utils")
   adef = load_adef(adef_path)
@@ -321,7 +339,7 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
   grid_data = None
   spline_data = None
   splines = SplineListEntry()
-  light_data = None
+  lights = LightsEntry()
   TP2Textures = None
   
   
@@ -400,6 +418,7 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
   splineObjects = []
   aimapObjects = []
   actorObjects = []
+  lightObjects = []
   for ob in obs:
     ob_eval = ob
     lp2_type = None
@@ -441,16 +460,34 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
     elif lp2_type == "Static Instance":
       lp2_type = lp2_type
     elif lp2_type.endswith("Light"):
-      lp2_type = lp2_type
+      lightObjects.append(ob_eval)
     elif ob_eval.data == None:
       print(ob_eval.users_collection)
   
   #for instance in geometry.model_instances:
   #  for rend_inst in instance.render_instances:
   #    rend_inst.sect_index
-
-  blender_materials = []    
   
+  if save_light_changes:
+    bg = bpy.data.worlds['World'].node_tree.nodes['Background']
+    ambient_light = LightEntry()
+    ambient_light.inject_changes(bg.inputs[0].default_value[:3])
+    lights.lights.append(ambient_light)
+    for ob_eval in lightObjects:
+      output_transform = Euler((math.radians(-90), 0, 0)).to_matrix().to_4x4() @ ob_eval.matrix_world
+      output_transform = output_transform @ Euler((math.radians(-180), 0, 0)).to_matrix().to_4x4()
+      bpylight = ob_eval.data
+      new_light = LightEntry()
+      ob_type = str(type(bpylight))
+      if "types.SunLight" in ob_type:
+        new_light.inject_changes(bpylight.color, 3, output_transform)
+      elif "types.SpotLight" in ob_type:
+        new_light.inject_changes(bpylight.color, 2, output_transform, bpylight.energy * 0.0002, bpylight.shadow_soft_size * 4, math.degrees(bpylight.spot_size), bpylight.spot_blend)
+      elif "types.PointLight" in ob_type:
+        new_light.inject_changes(bpylight.color, 1, output_transform, bpylight.energy * 0.0002, bpylight.shadow_soft_size * 4)
+      lights.lights.append(new_light)
+
+  blender_materials = []
   dynamicInstances = []
   dynamicInstanceNames = [dynamic.name for dynamic in dynamicInstanceObjects]
   dynamicCollMeshes = {}
@@ -484,19 +521,23 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
     levelInst.coll_inst_count = len(levelInst.collision_instances)
     levelInst.rend_inst_count = len(levelInst.render_instances)
   
-  if save_mesh_changes:
+  if save_collision_changes:
     for collName in collMeshes.keys():
       collOb, collIndex = collMeshes[collName]
       if not collIndex in dynamicCollMeshes: continue
       
       minVec, maxVec, collSection = dynamicCollMeshes[collIndex]
-      for groupName in collSection.keys():
-        if groupName == "verts": continue
-        group = collSection[groupName]
-        #print(group["verts"])
-        #print(group["edges"])
-        #print(group["faces"])
-    
+      out_bounds = []
+      for i in range(3):
+        out_bounds.append(minVec[i])
+        out_bounds.append(maxVec[i])
+      while collIndex >= len(geometry.collision_sections):
+        geometry.collision_sections.append(CollisionSection())
+        geometry.collision_sections[-1].save_changes()
+      geometry.collision_sections[collIndex].inject_changes(collSection, out_bounds[0:3], out_bounds[3:6])
+      geometry.collision_sections[collIndex].save_changes()
+  
+  if save_mesh_changes:
     blender_materials = list(set(blender_materials))
     blender_materials = [m for m in blender_materials if int(m.name.split(" ")[-1]) >= len(materials.materials)]
     material_textures = list(set([n.image for m in blender_materials for n in m.node_tree.nodes if n.type == 'TEX_IMAGE']))
@@ -605,11 +646,13 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
         edge2 = v2 - v1
         #mid = (v1 + v2 + v3) / 3.0
         #mid = v1 + edge1 * 0.5
-        edge_dir = edge1.cross(edge2)
+        #edge_dir = edge1.cross(edge2)
+        
+        edge_dir = edge.calc_tangent([loop for loop in edge.link_loops if loop in face.loops][0])
         edge_dir = edge_dir * Vector([1.,0.,1.])
         edge_dir.normalize()
         #edge_dir = Vector([edge_dir[0], edge_dir[1], -edge_dir[2]])
-        edge_plane = [edge_dir[0], 0.0, edge_dir[2], -edge_dir.dot(v3 * Vector([1.,0.,1.]))]
+        edge_plane = [edge_dir[0], 0.0, edge_dir[2], -edge_dir.dot(face.calc_center_median() * Vector([1.,0.,1.]))]
         oewvs.extend(edge_plane)
     aimaps.add_map(out_verts, out_faces)
   
@@ -732,8 +775,7 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
   if geometry_data != None: write_bytes(gmesh_data, gmesh_data.tell(), geometry_data.read())
   if node_data != None: write_bytes(gmesh_data, gmesh_data.tell(), node_data.read())
   if pvs_data != None: write_bytes(gmesh_data, gmesh_data.tell(), pvs_data.read())
-  if save_aimap_changes:
-    aimap_data = aimaps.save_changes()
+  if save_aimap_changes: aimap_data = aimaps.save_changes()
   if aimap_data != None: write_bytes(gmesh_data, gmesh_data.tell(), aimap_data.read())
   if grid_data != None: write_bytes(gmesh_data, gmesh_data.tell(), grid_data.read())
   write_magic_str(gmesh_data, gmesh_data.tell(), "END ", 4)
@@ -768,6 +810,7 @@ def save(context, filepath="", save_mesh_changes=False, save_actor_changes=True,
   write_u32(lp2_data, lp2_data.tell(), swap32(lp2_version))
   write_bytes(lp2_data, lp2_data.tell(), gmesh_data.read())
   write_bytes(lp2_data, lp2_data.tell(), spline_data.read())
+  if save_light_changes: light_data = lights.save_changes()
   if light_data != None: write_bytes(lp2_data, lp2_data.tell(), light_data.read())
   write_bytes(lp2_data, lp2_data.tell(), actor_data.read())
   write_magic_str(lp2_data, lp2_data.tell(), "END ", 4)

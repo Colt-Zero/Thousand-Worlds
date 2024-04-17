@@ -137,7 +137,7 @@ def load_p2m(data, name):
           obj.rotation_euler = [math.radians(90), 0, 0]
           models.append(obj)
           
-  print(blocks)
+  #print(blocks)
   return models
 
 def try_decompress_p2m(filepath):

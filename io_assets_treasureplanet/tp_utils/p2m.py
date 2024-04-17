@@ -275,7 +275,7 @@ class ModelLodEntry:
       submesh = ModelSubmeshEntry(self.data)
       self.approx_strip_count += submesh.approx_strip_count
       self.submeshes.append(submesh)
-    print("Original Strip count: %d" % self.approx_strip_count)
+    #print("Original Strip count: %d" % self.approx_strip_count)
   
   def get_submesh_geometry(self):
     output = []
@@ -297,7 +297,7 @@ class ModelEntry:
     self.block_size = sread_u32(self.data, self.entry_offset)
     
     self.mesh_count_maybe = sread_u32(self.data, self.entry_offset + 4)
-    if self.mesh_count_maybe > 1: print("Mesh Count:%d" % self.mesh_count_maybe)
+    #if self.mesh_count_maybe > 1: print("Mesh Count:%d" % self.mesh_count_maybe)
     self.lod_counts = [0]*self.mesh_count_maybe
     self.populate_meshes()
   

@@ -92,6 +92,25 @@ def load_lp2(data, name, adef, asset_root):
   collisionMeshes = []
   
   actorMeshes = {}
+
+  bpy.context.scene.render.engine = 'CYCLES'
+  bpy.context.scene.cycles.shading_system = True
+  shader = bpy.data.texts.new("VertexColorShader")
+  shader.write("""struct vector4 {
+      float x, y, z, w;
+};
+shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), output float alpha = 0.5)
+{
+    vector4 att = vector4(0.0, 0.0, 0.0, 0.0);
+    string att_name = "Col";
+    if (index > 0)
+    {
+      att_name = format("%s.%03d", att_name, index);
+    }
+    getattribute(att_name, att);
+    out = color(att.x, att.y, att.z);
+    alpha = att.w;
+}""")
   
   for key in blocks.keys():
     block = blocks[key]
@@ -110,28 +129,39 @@ def load_lp2(data, name, adef, asset_root):
       light_collection = bpy.data.collections.new("Lights")
       bpy.context.collection.children.link(light_collection)
       for light in lights.lights:
-        _type, color, atten, area, matrix = light.get_bpylight()
+        _type, color, radfall, spot, matrix = light.get_bpylight()
         if _type == "Ambient":
           world = bpy.data.worlds['World']
           bg = world.node_tree.nodes['Background']
           bg.inputs[0].default_value[:3] = color
-          bg.inputs[1].default_value = 1.0
+          bg.inputs[1].default_value = 2.5
           continue
         bpylight = bpy.data.lights.new('%sLight' % _type, _type.upper())
         bpylight.color = color
-        bpylight.energy = 2.0
+        bpylight.diffuse_factor = 0.5
+        bpylight.energy = 5
+        bpylight.use_shadow = True
+        radfall_val = (radfall[0] + radfall[1])
+        spot_val = (spot[0] + spot[1])
+        spot_val *= radfall_val
+        radfall_val *= 0.5
         if _type == "Point":
-          bpylight.energy = (atten[0] + atten[1]) * 0.5
-          bpylight.energy = bpylight.energy * 12500
-          bpylight.shadow_soft_size = 5
+          bpylight.energy = radfall_val
+          bpylight.energy = bpylight.energy * 5000
+          bpylight.shadow_soft_size = radfall[0] * 0.25
+          bpylight.use_custom_distance = True
+          bpylight.cutoff_distance = radfall[0] + radfall[1]
+          bpylight.distance = radfall[1]
         elif _type == "Spot":
-          bpylight.energy = (atten[0] + atten[1]) * 0.5
-          bpylight.energy = bpylight.energy * 100000
-          bpylight.spot_size = (area[0] + area[1]) * 0.5
+          bpylight.energy = radfall_val
+          bpylight.energy = bpylight.energy * 5000
+          bpylight.shadow_soft_size = radfall[0] * 0.25
+          bpylight.spot_size = math.radians(math.sqrt(spot_val * spot_val + radfall_val * radfall_val))
+          bpylight.spot_blend = spot[0] / (spot[0] + spot[1])
           bpylight.show_cone = True
         bpyob = bpy.data.objects.new(bpylight.name, bpylight)
         light_collection.objects.link(bpyob)
-        bpyob.matrix_world = Euler((math.radians(90), 0, 0)).to_matrix().to_4x4() @ matrix
+        bpyob.matrix_world = Euler((math.radians(90), 0, 0)).to_matrix().to_4x4() @ matrix @ Euler((math.radians(180), 0, 0)).to_matrix().to_4x4()
         bpyob["_lp2_type"] = '%sLight' % _type
     elif key == "SPLN":
       data.seek(block)
@@ -165,6 +195,7 @@ def load_lp2(data, name, adef, asset_root):
       else: pvs_collection = bpy.data.collections["Potentially Visible Set"]
       
       gWidth, gDepth, gScale, gX, gZ, grid_cell_flags = grid.get_bpymesh()
+      #offset -3.0, 4.8
       #gSize = (gWidth + gDepth) // 2
       gSize = max(gWidth, gDepth)
       bpy.ops.mesh.primitive_grid_add(x_subdivisions=gWidth, y_subdivisions=gDepth, size=gSize*gScale, enter_editmode=False, align='WORLD', location=(gX-(gWidth*gScale*0.5)+(float(gWidth) / gSize)*(gScale*2), gZ-(gDepth*gScale*0.5)+(float(gDepth) / gSize)*(gScale*2), 0), scale=(1,1,1))
@@ -406,7 +437,7 @@ def load_lp2(data, name, adef, asset_root):
     elif key == "AINF":
       data.seek(block)
       actorList = ActorInfoListEntry(data, adef.classes, adef.enums, adef.strings, stringlists["ASTR"], stringlists["PSTR"], aimaps, splines, ModelDirectory)
-      
+      print(name + " has " + str(actorList.count) + " actors")
       enum_path = os.path.join(current_dir.absolute(), "tp_utils")
       enum_path = os.path.join(enum_path,'enums.json')
       if os.path.exists(enum_path):
@@ -432,6 +463,7 @@ def load_lp2(data, name, adef, asset_root):
       orderedClasses.sort(key=lambda x: x.properties_count1 + x.properties_count2, reverse=True)
       classNames = [adef.strings.table[cls.string_index] for cls in orderedClasses]
       actor_collection = bpy.data.collections.new("Actors")
+      actor_lod_collections = [None]*5
       bpy.context.collection.children.link(actor_collection)
       for a, actor in enumerate(actorList.actors):
         obj = bpy.data.objects.new("%s %d" % (actor.name, a), None)
@@ -463,7 +495,12 @@ def load_lp2(data, name, adef, asset_root):
                 loaded_models.append(aobj)
                 #aobj["P2M-Version"] = p2m_version
             for aobj in loaded_models:
+              lod_index = int(aobj.name.rsplit(".")[0].split("_lod")[1])
               if not "_lod0" in aobj.name: aobj.hide_set(not aobj.hide_get())
+              if not actor_lod_collections[lod_index]:
+                actor_lod_collections[lod_index] = (bpy.data.collections.new("Actor LOD %d" % lod_index))
+                actor_collection.children.link(actor_lod_collections[lod_index])
+              actor_lod_collections[lod_index].objects.link(aobj)
               aobj.rotation_euler = [0, 0, 0]#[math.radians(90), 0, 0]
               aobj.parent = obj
       
@@ -608,20 +645,26 @@ def load_lp2(data, name, adef, asset_root):
       geometry = GeometrySection(data, lp2_version, materials.materials)
       models_collection = bpy.data.collections.new("Level Models")
       bpy.context.collection.children.link(models_collection)
+      collision_collection = bpy.data.collections.new("Collision Models")
+      models_collection.children.link(collision_collection)
       dynamic_models_collection = bpy.data.collections.new("Dynamic Level Models")
+      dynamic_collision_collection = bpy.data.collections.new("Dynamic Collision Models")
+      dynamic_models_collection.children.link(dynamic_collision_collection)
       bpy.context.collection.children.link(dynamic_models_collection)
       
       collisionMeshes = []
       for c, collSect in enumerate(geometry.collision_sections):
-        section_vertices, section_indices, section_triNormals, vertex_groups = collSect.get_geometry_per_section()
+        section_vertices, section_indices, section_triNormals, vertex_groups, coll_layers = collSect.get_geometry_per_section()
         mesh = bpy.data.meshes.new(name="Collision Mesh %d" % (c))
         mesh.from_pydata(section_vertices, [], section_indices)
         mesh.update()
         mesh.validate()
-        collisionMeshes.append((mesh, vertex_groups))
+        collisionMeshes.append((mesh, vertex_groups, coll_layers))
       
-      material_values = { "Material Flags": [], "Property B1": [], "Property B2": [], "Property UV": [] }
-
+      material_unique_props = [(32, 0), (40, 0), (48, 0), (96, 0), (32, 1), (32, 2), (96, 2), (32, 3), (96, 3), (113, 3), (32, 4), (32, 5), (96, 5), (113, 5)]
+      material_unique_prop_doubles = [((32, 0), (32, 0)), ((32, 0), (40, 0)), ((32, 0), (32, 1)), ((32, 0), (96, 2)), ((32, 0), (32, 3)), ((32, 0), (96, 3)), ((32, 0), (113, 3)), ((32, 0), (32, 4)), ((32, 0), (96, 5)), ((32, 0), (32, 5)), ((32, 0), (113, 5)), ((40, 0), (40, 0)), ((40, 0), (32, 3)), ((96, 0), (32, 3)), ((96, 0), (96, 3)), ((40, 0), (96, 5)), ((96, 0), (96, 5)), ((32, 1), (32, 1)), ((32, 3), (32, 0)), ((32, 3), (32, 3)), ((96, 3), (96, 3)), ((113, 3), (32, 3)), ((32, 3), (32, 5)), ((32, 3), (96, 5)), ((96, 5), (96, 5))]
+      material_configurations = [(0, (32, 0)), (0, (40, 0)), (0, (48, 0)), (0, (96, 0)), (0, (32, 1)), (0, (32, 2)), (0, (32, 3)), (0, (96, 3)), (0, (32, 5)), (0, (96, 5)), (0, (113, 5)), (1, (40, 0)), (1, (96, 0)), (1, (32, 0)), (1, (32, 3)), (3, (32, 0)), (3, (40, 0)), (3, (96, 0)), (4, (32, 0)), (6, (32, 0)), (7, (32, 0)), (0, (32, 0), (32, 0)), (0, (32, 0), (40, 0)), (0, (32, 0), (32, 1)), (0, (32, 0), (96, 2)), (0, (32, 0), (32, 3)), (0, (32, 0), (96, 3)), (0, (32, 0), (113, 3)), (0, (32, 0), (32, 4)), (0, (32, 0), (96, 5)), (0, (32, 0), (32, 5)), (0, (32, 0), (113, 5)), (0, (40, 0), (40, 0)), (0, (40, 0), (32, 3)), (0, (96, 0), (96, 3)), (0, (40, 0), (96, 5)), (0, (96, 0), (96, 5)), (0, (32, 1), (32, 1)), (0, (32, 3), (32, 0)), (0, (32, 3), (32, 3)), (0, (96, 3), (96, 3)), (0, (113, 3), (32, 3)), (0, (32, 3), (32, 5)), (0, (32, 3), (96, 5)), (0, (96, 5), (96, 5)), (1, (40, 0), (40, 0)), (1, (32, 0), (32, 1)), (1, (32, 0), (32, 3)), (1, (96, 0), (32, 3)), (1, (32, 0), (32, 5)), (1, (32, 0), (96, 5)), (1, (32, 0), (113, 5)), (1, (32, 3), (96, 5)), (3, (32, 0), (32, 3)), (3, (32, 0), (32, 5)), (3, (32, 0), (96, 5)), (3, (32, 3), (32, 3)), (4, (32, 0), (32, 3)), (6, (32, 3), (32, 3))]
+      texture_associations = {}
       bpy_materials = {}
       renderMeshes = []
       for r, rendSect in enumerate(geometry.render_sections):
@@ -630,8 +673,15 @@ def load_lp2(data, name, adef, asset_root):
         mesh.from_pydata(section_vertices, [], section_faces)
         per_mesh_materials = {}
         
-        #mesh.vertices.foreach_set("normal", [n for nv in section_normals for n in nv])
+        if rendSect.color_maps > 0:
+          for section_color in section_colors:
+            if len(section_color) == 0: continue
+            vcol_lay = mesh.vertex_colors.new()
+            for sc, col in enumerate(vcol_lay.data):
+              col.color = list(reversed(section_color[sc][0:3])) + [section_color[sc][3]]
         
+        vcol_len = len(mesh.vertex_colors.keys())
+
         uv_layers = []
         for mat_index in material_uvs.keys():
           face_offset, offset, face_len, mat_uvs = material_uvs[mat_index]
@@ -640,63 +690,116 @@ def load_lp2(data, name, adef, asset_root):
             for u, mat_uv in enumerate(uv_map): uv_layers[lay].data[offset+u].uv = mat_uv
           
           lp2_material = materials.materials[mat_index]
-          if lp2_material.properties[0].texture_index < 0xffff:
-            if not mat_index in bpy_materials:
-              image = textures[lp2_material.properties[0].texture_index]
-              bpy_material = bpy.data.materials.new(name="LP2 Material %03d" % mat_index)#image.name)
-              bpy_material.use_nodes = True
-              matnodes = bpy_material.node_tree.nodes
+          
+          if not mat_index in bpy_materials:
+            bpy_material = bpy.data.materials.new(name="LP2 Material %03d" % mat_index)#image.name)
+            bpy_material.use_nodes = True
+            matnodes = bpy_material.node_tree.nodes
+            mix = matnodes.new("ShaderNodeMixRGB")
+              
+            vertColIndex = matnodes.new("ShaderNodeAttribute")
+            vertColIndex.attribute_type = 'OBJECT'
+            vertColIndex.attribute_name = 'Vertex Color Index'
+            vertCol = matnodes.new("ShaderNodeScript")
+            vertCol.script = shader
+            scriptCheck = matnodes.new("ShaderNodeMath")
+            scriptCheck.operation = 'COMPARE'
+            scriptCheck.inputs[2].default_value = 0.0
+            vertColMix = matnodes.new("ShaderNodeMixRGB")
+            col_att = matnodes.new("ShaderNodeVertexColor")
+            col_att.layer_name = "Col"
+
+            bpy_material.node_tree.links.new(vertColIndex.outputs[3], vertCol.inputs[0])
+            bpy_material.node_tree.links.new(vertCol.outputs[0], scriptCheck.inputs[0])
+            bpy_material.node_tree.links.new(scriptCheck.outputs[0], vertColMix.inputs[0])
+            bpy_material.node_tree.links.new(vertCol.outputs[0], vertColMix.inputs[1])
+            bpy_material.node_tree.links.new(col_att.outputs[0], vertColMix.inputs[2])
+            bpy_material.node_tree.links.new(vertCol.outputs[1], mix.inputs[0])
+            bpy_material.node_tree.links.new(vertColMix.outputs[0], mix.inputs[2])
+
+            texMix = matnodes.new("ShaderNodeMixRGB")
+            texture = None
+            propType = 0
+            for prop, mat_property in enumerate(lp2_material.properties):
+              if lp2_material.properties[0].texture_index >= 0xffff: continue
+              propType = lp2_material.properties[prop].type
+              uv_index = lp2_material.properties[prop].uv - 1
+              image = textures[lp2_material.properties[prop].texture_index]
               texture = matnodes.new("ShaderNodeTexImage")
               texture.image = image
-              matnodes["Principled BSDF"].inputs[7].default_value = 0.1
-              matnodes["Principled BSDF"].inputs[9].default_value = 0.75
-              if image.channels == 4:
-                bpy_material.node_tree.links.new(texture.outputs[1], matnodes["Principled BSDF"].inputs[21])
-                #bpy_material.blend_method = 'BLEND'
-                #bpy_material.alpha_threshold = 0
-              #TODO: Implement vertex color OSL shader node
-              bpy_material.node_tree.links.new(texture.outputs[0], matnodes["Principled BSDF"].inputs[0])
-              bpy_material.node_tree.links.new(matnodes["Principled BSDF"].outputs[0], matnodes['Material Output'].inputs[0])
-              bpy_materials[mat_index] = bpy_material
-            else: bpy_material = bpy_materials[mat_index]
-            
-            bpy_material["flags"] = lp2_material.lod_flags
-            bpy_material["uvs"] = lp2_material.uv_maps
-            bpy_material["normals"] = lp2_material.normals
-            material_values["Material Flags"].append(lp2_material.lod_flags)
-            for prop, mat_property in enumerate(lp2_material.properties):
-              if mat_property.texture_index < 0xffff: bpy_material["prop_%d_texture"%prop] = textures[mat_property.texture_index].name
-              bpy_material["prop_%d"%prop] = Vector([mat_property.texture_index, mat_property.unk_b1, mat_property.unk_b2, mat_property.unk_b3])
-              material_values["Property B1"].append(mat_property.unk_b1)
-              material_values["Property B2"].append(mat_property.unk_b2)
-              material_values["Property UV"].append(mat_property.unk_b3)
-            material_values["Material Flags"] = list(set(material_values["Material Flags"]))
-            material_values["Property B1"] = list(set(material_values["Property B1"]))
-            material_values["Property B2"] = list(set(material_values["Property B2"]))
-            material_values["Property UV"] = list(set(material_values["Property UV"]))
+              if uv_index > 0:
+                uv_lookup = matnodes.new("ShaderNodeUVMap")
+                uv_lookup.uv_map = "UVMap.%03d" % uv_index
+                bpy_material.node_tree.links.new(uv_lookup.outputs[0], texture.inputs[0])
 
-            if not mat_index in per_mesh_materials:
-              bpy_index = len(mesh.materials)
-              per_mesh_materials[mat_index] = bpy_index
-            else: bpy_index = per_mesh_materials[mat_index]
+              if propType == 0 or propType == 3:
+                bpy_material.node_tree.links.new(texture.outputs[0], texMix.inputs[prop+1])
+                if prop == 0:
+                  bpy_material.node_tree.links.new(texture.outputs[0], texMix.inputs[prop+2])
+              else:
+                bpy_material.node_tree.links.new(texture.outputs[0], matnodes["Principled BSDF"].inputs[6])
+            if len(lp2_material.properties) == 1 and texture and (propType == 0 or propType == 3):
+              bpy_material.node_tree.links.new(texture.outputs[0], texMix.inputs[len(lp2_material.properties)+1])
+            bpy_material.node_tree.links.new(texMix.outputs[0], mix.inputs[1])
+
+            matnodes["Principled BSDF"].inputs[7].default_value = 0.1
+            matnodes["Principled BSDF"].inputs[9].default_value = 0.75
+            #if image.channels == 4:
+            #  bpy_material.node_tree.links.new(texture.outputs[1], matnodes["Principled BSDF"].inputs[21])
+              #bpy_material.blend_method = 'BLEND'
+              #bpy_material.alpha_threshold = 0
+            bpy_material.node_tree.links.new(mix.outputs[0], matnodes["Principled BSDF"].inputs[0])
+            bpy_material.node_tree.links.new(matnodes["Principled BSDF"].outputs[0], matnodes['Material Output'].inputs[0])
+            bpy_materials[mat_index] = bpy_material
+          else: bpy_material = bpy_materials[mat_index]
             
-            faces = [f for f in mesh.polygons if f.index >= face_offset and f.index < face_offset + face_len]
-            for face in faces: face.material_index = bpy_index
-            mesh.materials.append(bpy_material)
-        
-        if rendSect.color_maps > 0:
-          for section_color in section_colors:
-            if len(section_color) == 0: continue
-            vcol_lay = mesh.vertex_colors.new()
-            for sc, col in enumerate(vcol_lay.data):
-              col.color = list(reversed(section_color[sc][0:3])) + [section_color[sc][3]]
+          bpy_material["flags"] = lp2_material.lod_flags
+          bpy_material["uvs"] = lp2_material.uv_maps
+          bpy_material["normals"] = lp2_material.normals
+          #material_config = [lp2_material.lod_flags]
+          for prop, mat_property in enumerate(lp2_material.properties):
+            if mat_property.texture_index < 0xffff: bpy_material["prop_%d_texture"%prop] = textures[mat_property.texture_index].name
+            bpy_material["prop_%d"%prop] = Vector([mat_property.texture_index, mat_property.flags, mat_property.type, mat_property.uv])
+            #mat_config = (mat_property.flags, mat_property.type)
+            #material_config.append(mat_config)
+            #if not mat_config in texture_associations:
+            # texture_associations[mat_config] = []
+            #if not mat_property.texture_index in texture_associations[mat_config]:
+            #  texture_associations[mat_config].append(mat_property.texture_index)
+            #
+            #if not mat_property.flags in texture_associations:
+            #  texture_associations[mat_property.flags] = []
+            #if not mat_property.texture_index in texture_associations[mat_property.flags]:
+            #  texture_associations[mat_property.flags].append(mat_property.texture_index)
+            #
+            #if not mat_property.type in texture_associations:
+            #  texture_associations[mat_property.type] = []
+            #if not mat_property.texture_index in texture_associations[mat_property.type]:
+            #  texture_associations[mat_property.type].append(mat_property.texture_index)
+          #material_configurations.append(tuple(material_config))
+
+          if not mat_index in per_mesh_materials:
+            bpy_index = len(mesh.materials)
+            per_mesh_materials[mat_index] = bpy_index
+          else: bpy_index = per_mesh_materials[mat_index]
+          
+          faces = [f for f in mesh.polygons if f.index >= face_offset and f.index < face_offset + face_len]
+          for face in faces: face.material_index = bpy_index
+          mesh.materials.append(bpy_material)
         mesh.color_attributes.active_color_index = 0
+        #mesh.use_auto_smooth = True
+        #mesh.normals_split_custom_set_from_vertices(section_normals)
+        #mesh.calc_normals_split()
         mesh.update()
         mesh.validate()
         renderMeshes.append((mesh, vertex_groups))
       
-      #print(material_values)
-      #{'Material Flags': [0, 1, 3, 4, 6], 'Property B1': [32, 113, 40, 96], 'Property B2': [0, 1, 3, 4, 5], 'Property UV': [0, 1, 2]}
+      #for assoc in texture_associations.keys():
+      #  for tex_index in texture_associations[assoc]:
+      #    textures[tex_index].save_render(filepath=f'/storage/Projects/Modding/Games/EmulatorGames/Playstation 2/TREASUREPLANET/tools/treasure planet modding/blender_plugin_testing/tex/{name}/{str(assoc)}/{textures[tex_index].name}.png')
+
+      #material_configurations = list(set(material_configurations))
+      #print(material_configurations)
 
       renderMeshObjects = {}
       
@@ -720,6 +823,7 @@ def load_lp2(data, name, adef, asset_root):
             vgroup.add(gindices, 1.0, 'REPLACE')
           if not mesh.name in renderMeshObjects: renderMeshObjects[mesh.name] = obj
           obj["bounds"] = render_instance.max - render_instance.min
+          obj["Vertex Color Index"] = inst.vertex_color_index
           models_collection.objects.link(obj)
           obj.parent = iobj
           if renderMeshObjects[mesh.name] != obj  and inst.vertex_color_index > 0:
@@ -765,15 +869,17 @@ def load_lp2(data, name, adef, asset_root):
         
         for c, coll_instance in enumerate(inst.collision_instances):
           coll_sect_index = coll_instance.sect_index
-          mesh, vertex_groups = collisionMeshes[coll_sect_index]
+          mesh, vertex_groups, coll_layers = collisionMeshes[coll_sect_index]
           obj = bpy.data.objects.new("Model %d Collision %d" % (i, c), mesh)
           for v, gindices in enumerate(vertex_groups):
             if ("sub%d" % v) in obj.vertex_groups.keys(): continue
             vgroup = obj.vertex_groups.new(name="sub%d" % v)
             vgroup.add(gindices, 1.0, 'REPLACE')
+            obj["sub%d_layer" % v] = coll_layers[v]
           
           obj["bounds"] = coll_instance.max - coll_instance.min
           models_collection.objects.link(obj)
+          collision_collection.objects.link(obj)
           obj.parent = iobj
           obj.hide_set(not obj.hide_get())
           #obj.matrix_world = transform
@@ -797,6 +903,7 @@ def load_lp2(data, name, adef, asset_root):
             vgroup.add(gindices, 1.0, 'REPLACE')
           if not mesh.name in renderMeshObjects: renderMeshObjects[mesh.name] = obj
           obj["bounds"] = render_instance.max - render_instance.min
+          obj["Vertex Color Index"] = inst.vertex_color_index
           dynamic_models_collection.objects.link(obj)
           obj.parent = iobj
           if renderMeshObjects[mesh.name] != obj and inst.vertex_color_index > 0:
@@ -842,17 +949,20 @@ def load_lp2(data, name, adef, asset_root):
           
         for c, coll_instance in enumerate(inst.collision_instances):
           coll_sect_index = coll_instance.sect_index
-          mesh, vertex_groups = collisionMeshes[coll_sect_index]
+          mesh, vertex_groups, coll_layers = collisionMeshes[coll_sect_index]
           obj = bpy.data.objects.new("Dynamic Model %d Collision %d" % (i, c), mesh)
           for v, gindices in enumerate(vertex_groups):
             if ("sub%d" % v) in obj.vertex_groups.keys(): continue
             vgroup = obj.vertex_groups.new(name="sub%d" % v)
             vgroup.add(gindices, 1.0, 'REPLACE')
+            obj["sub%d_layer" % v] = coll_layers[v]
           obj["bounds"] = coll_instance.max - coll_instance.min
           dynamic_models_collection.objects.link(obj)
+          dynamic_collision_collection.objects.link(obj)
           obj.parent = iobj
           obj.hide_set(not obj.hide_get())
           #obj.matrix_world = transform
+  bpy.context.scene.render.engine = 'BLENDER_EEVEE'
 
 def load(operator, context, filepath=""):
   filedata = None

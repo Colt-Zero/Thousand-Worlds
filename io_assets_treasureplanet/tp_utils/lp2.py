@@ -2,6 +2,7 @@ from io import BytesIO
 import os
 from fs_helpers import *
 from adef import Adef, ActorStringsEntry
+from bsptree import BSPTree
 import math
 from mathutils import Vector, Matrix, Euler
 
@@ -46,11 +47,35 @@ class LevelMaterialsEntry:
 
 class LevelMaterialEntry:
   class LevelMaterialDataEntry:
-    def __init__(self, texture_index, unk_b1 = 0, unk_b2 = 0, unk_b3 = 0):
+    def __init__(self, texture_index, flags = 0, type = 0, uv_ind = 0):
       self.texture_index = texture_index
-      self.unk_b1 = unk_b1
-      self.unk_b2 = unk_b2
-      self.unk_b3 = unk_b3
+      self.flags = flags
+      #0x20: Default
+      #0x28: Alpha clip?
+      #0x30: 
+      #0x60: 
+      #0x71: 
+      #local_c0[1]
+      #boolean impact:
+      #local_c0[0] 0 or 1
+      #local_b0 flags & 0x8 == 0: 0 else 1 -> 0x5000c else 0x5000d
+      #local_ac 0 or 1
+      #local_a8 flags & 0x10 == 0: 0 else 5
+      self.type = type
+      #0: Regular texture
+      #1: Glow type 1?
+      #2: Red Environment map?
+      #3: Glass Type?
+      #4: Glow type 2?
+      #5: Regular Environment map?
+      #local_c0[2]
+      #boolean impact:
+      #local_c0[0] 0 or 0x400
+      #local_c0[3] 0 or 1 
+      #local_b0 0 or 1 -> 0x5000c or 0x5000d
+      #local_ac 0 or 1
+      #local_a4 type == 0: 0 else 0x40 -> 0x238 else 0x278
+      self.uv = uv_ind
   
   def __init__(self, flags = 0, uv_maps = 0, normals = 0, mat_data = None):
     self.data = mat_data
@@ -62,6 +87,11 @@ class LevelMaterialEntry:
     if self.data == None: return
 
     self.lod_flags = sread_u32(self.data, self.data.tell())
+    #0: Render
+    #1: Render when mid?
+    #3: Render when close?
+    #4: Fade out when close
+    #6: Fade out when mid
     if (self.lod_flags & 0x7) == 0x7:
       print("Why the fuck are the LOD flags for this section set to no render")
       #self.lod_flags = 0
@@ -74,29 +104,10 @@ class LevelMaterialEntry:
     for i in range(self.mat_properties):
       #print("Mat property entry: %08x" % self.data.tell())
       prop_data = self.LevelMaterialDataEntry(sread_u16(self.data, self.data.tell()), read_u8(self.data, self.data.tell()), read_u8(self.data, self.data.tell()), read_u8(self.data, self.data.tell()))
-      #print("Material Property - Texture: " + textures[prop_data.texture_index].name + " Unk_Bytes: " + hex(prop_data.unk_b1) + " " + hex(prop_data.unk_b2) + " " + hex(prop_data.unk_b3))
+      #print("Material Property - Texture: " + textures[prop_data.texture_index].name + " Prop Bytes: " + hex(prop_data.flags) + " " + hex(prop_data.type) + " " + hex(prop_data.uv))
       self.properties.append(prop_data)
-
-      #first byte:
-      #local_c0[1]
-      #boolean impact:
-      #local_c0[0] 0 or 1
-      #local_b0 0 or 1 -> 0x5000c or 0x5000d
-      #local_ac 0 or 1
-      #local_a8 0 or 5
-      #
-      #second byte:
-      #local_c0[2]
-      #boolean impact:
-      #local_c0[0] 0 or 0x400
-      #local_c0[3] 0 or 1 
-      #local_b0 0 or 1 -> 0x5000c or 0x5000d
-      #local_ac 0 or 1
-      #local_a4 0 or 0x40
-    
-    self.unk_4 = 0
     if self.mat_properties != 0:
-      if self.properties[0].unk_b2 != 0:
+      if self.properties[0].type != 0:
         self.lod_flags = self.lod_flags# | 0x80000000
     #print("Material Lod Flags: " + hex(self.lod_flags))
   
@@ -113,9 +124,9 @@ class LevelMaterialEntry:
     write_u16(output, output.tell(), swap16(self.normals))
     for prop in self.properties:
       write_u16(output, output.tell(), swap16(prop.texture_index))
-      write_u8(output, output.tell(), prop.unk_b1)
-      write_u8(output, output.tell(), prop.unk_b2)
-      write_u8(output, output.tell(), prop.unk_b3)
+      write_u8(output, output.tell(), prop.flags)
+      write_u8(output, output.tell(), prop.type)
+      write_u8(output, output.tell(), prop.uv)
     output.seek(0)
     return output
 
@@ -126,7 +137,7 @@ class LevelMaterialEntry:
       textureName = "None"
       if prop_data.texture_index != 0xFFFF:
         textureName = textures[prop_data.texture_index].name
-      print("Material Property - Texture: " + textureName + " Unk_Bytes: " + hex(prop_data.unk_b1) + " " + hex(prop_data.unk_b2) + " " + hex(prop_data.unk_b3))
+      print("Material Property - Texture: " + textureName + " Prop Bytes: " + hex(prop_data.flags) + " " + hex(prop_data.type) + " " + hex(prop_data.uv))
 
 class GeometrySection:
   def __init__(self, data, versionNo, materials):
@@ -146,7 +157,7 @@ class GeometrySection:
     print("Collision Section Count: " + str(self.collision_section_count))
     self.collision_sections = []
     for i in range(self.collision_section_count):
-      self.collision_sections.append(CollisionSection(self.data, i))
+      self.collision_sections.append(CollisionSection(self.data))
     
     
     self.render_section_instance_count = -1
@@ -231,20 +242,54 @@ class GeometrySection:
     return out_data
 
 class CollisionSection:
-  def __init__(self, data, s):
+  def __init__(self, data = None):
     self.data = data
+    self.entry_offset = 0
+    self.data_size = 0
+    self.bounding_floats = [0.0]*6
+    self.coll_geom_count = 0
+    self.collision_geometry = []
+    if self.data == None: return
+
     self.entry_offset = self.data.tell()
     #Local space section bounds: x,x y,y z,z
     self.bounding_floats = [sread_float(self.data, self.data.tell()) for _ in range(6)]
+    #print(self.bounding_floats)
     #for i in range(6): self.bounding_floats = self.bounding_floats + [sread_float(self.data, self.data.tell())]
     
     #print("")
     self.coll_geom_count = sread_u32(self.data, self.data.tell())
-    self.collision_geometry = []
     for i in range(self.coll_geom_count):
-      self.collision_geometry.append(CollisionGeometry(self.data, s, i))
+      self.collision_geometry.append(CollisionGeometry(self.data))
     self.data_size = self.data.tell() - self.entry_offset
   
+  def inject_changes(self, mesh_data, minVec, maxVec):
+    self.bounding_floats = list(minVec[:]) + list(maxVec[:])
+    original_geometry = self.collision_geometry
+    self.collision_geometry = []
+    for groupIndex in mesh_data.keys():
+      #og = original_geometry[groupIndex]
+      #mesh_data[groupIndex]["layer"] = og.layer_mask
+      #mesh_data[groupIndex]["verts"] = og.vertices
+      #mesh_data[groupIndex]["edges"] = og.edges
+      #mesh_data[groupIndex]["faces"] = [(og.tri_vert_indices[i], og.tri_edge_indices[i], og.tri_normals[i]) for i in range(len(og.tri_vert_indices))]
+
+      group = CollisionGeometry()
+      group.inject_changes(mesh_data[groupIndex])
+      self.collision_geometry.append(group)
+    self.coll_geom_count = len(self.collision_geometry)
+
+  def save_changes(self):
+    output = BytesIO()
+    for f in range(6): write_float(output, output.tell(), swapfloat(self.bounding_floats[f]))
+    write_u32(output, output.tell(), swap32(self.coll_geom_count))
+    for geom in self.collision_geometry:
+      output.write(geom.save_changes().read())
+    self.entry_offset = 0
+    self.data = output
+    self.data_size = data_len(self.data)
+    self.data.seek(0)
+
   def get_geometry_per_section(self):
     added_offset = 0
     vertex_groups = []
@@ -268,15 +313,30 @@ class CollisionSection:
         section_triNormals.extend(adjusted_normals)
         section_indices.extend(adjusted_indices)
       vertex_groups.append(adjusted_indices_flat)
-    return section_vertices, section_indices, section_triNormals, vertex_groups
+    return section_vertices, section_indices, section_triNormals, vertex_groups, [geo.layer_mask for geo in self.collision_geometry]
 
 class CollisionGeometry:
-  def __init__(self, data, s, g):
+  def __init__(self, data = None):
     self.data = data
+    self.entry_offset = 0
+    self.layer_mask = 0x003e00
+    self.vertex_count = 0
+    self.vertices = []
+    self.edge_count = 0
+    self.edges = []
+    self.triangle_count = 0
+    self.tri_vert_indices = []
+    self.tri_edge_indices = []
+    self.tri_normals = []
+    self.bsp_count = 0
+    self.bsp_root = None
+    if self.data == None: return
+
     self.entry_offset = self.data.tell()
     
-    self.unk_1 = sread_u32(self.data, self.data.tell())
-    #print(f"%08x" % self.unk_1)
+    self.layer_mask = sread_u32(self.data, self.data.tell())
+    #breakpoint at 00224654 and check s3+0x1C
+    #print(f"%08x" % self.layer_mask)
     
     #Vertex Section
     self.vertex_count = sread_u16(self.data, self.data.tell())
@@ -311,8 +371,10 @@ class CollisionGeometry:
     
     
     #BSP Section
-    self.bsp_count = 0
-    self.bsp_root = self.load_collision_bsp()
+    #print("--LOADED--")
+    tri_list = []
+    self.bsp_root = self.load_collision_bsp(1, tri_list)
+    #print(tri_list)
     #print("Collision Section: " + str(s) + " Part: " + str(g) + " Vertex Count: " + str(self.vertex_count) + " Triangle Count: " + str(self.triangle_count) + " Edge Count: " + str(self.edge_count) + " BSP Count: " + str(self.bsp_count))
   
   class CollisionBSPNode:
@@ -322,7 +384,7 @@ class CollisionGeometry:
       self.nodeA = nodeA
       self.nodeB = nodeB
   
-  def load_collision_bsp(self, count=1):
+  def load_collision_bsp(self, count=1, tri_list = []):
     if self.bsp_count < count:
       self.bsp_count = count
     nodeA = None
@@ -334,13 +396,84 @@ class CollisionGeometry:
       _bsp_tris.append(sread_u16(self.data, self.data.tell()))
     bsp_tris = _bsp_tris
     
+    tri_list.append(bsp_tris)
+    
     unk_1_cond = sread_u32(self.data, self.data.tell())
     unk_2_cond = sread_u32(self.data, self.data.tell())
     if unk_1_cond != 0:
-      nodeA = self.load_collision_bsp(count + 1)
+      nodeA = self.load_collision_bsp(count + 1, tri_list)
     if unk_2_cond != 0:
-      nodeB = self.load_collision_bsp(count + 1)
+      nodeB = self.load_collision_bsp(count + 1, tri_list)
     return self.CollisionBSPNode(bsp_triangle_count, bsp_tris, nodeA, nodeB)
+  
+  def construct_collision_bsp(self, node, count=1, tri_list = []):
+    if not node: return None
+    if (not node['front']) and (not node['back']) and (not node['triangles_on_plane']): return None
+    if self.bsp_count < count: self.bsp_count = count
+    bsp_tris = []
+    if node['triangles_on_plane']:
+      bsp_tris = [tri.index for tri in node['triangles_on_plane']]
+    tri_list.append(bsp_tris)
+    bsp_triangle_count = len(bsp_tris)
+    nodeA = None
+    nodeB = None
+    if node['front']:
+      nodeA = self.construct_collision_bsp(node['front'], count + 1, tri_list)
+    if node['back']:
+      nodeB = self.construct_collision_bsp(node['back'], count + 1, tri_list)
+    return self.CollisionBSPNode(bsp_triangle_count, bsp_tris, nodeA, nodeB)
+  
+  def save_bsp(self, node, output):
+    write_u32(output, output.tell(), swap32(node.triangle_count))
+    for index in node.triangles: write_u16(output, output.tell(), swap16(index))
+    write_u32(output, output.tell(), swap32(int(node.nodeA != None)))
+    write_u32(output, output.tell(), swap32(int(node.nodeB != None)))
+    if node.nodeA != None:
+      self.save_bsp(node.nodeA, output)
+    if node.nodeB != None:
+      self.save_bsp(node.nodeB, output)
+  
+  def save_changes(self):
+    output = BytesIO()
+    write_u32(output, output.tell(), swap32(self.layer_mask))
+
+    write_u16(output, output.tell(), swap16(self.vertex_count))
+    for vert in self.vertices:
+      for vf in range(4): write_float(output, output.tell(), swapfloat(vert[vf]))
+    
+    write_u16(output, output.tell(), swap16(self.edge_count))
+    for edge in self.edges:
+      for index in edge: write_u16(output, output.tell(), swap16(index))
+    
+    write_u16(output, output.tell(), swap16(self.triangle_count))
+    for t in range(self.triangle_count):
+      for index in self.tri_vert_indices[t]: write_u16(output, output.tell(), swap16(index))
+      for index in self.tri_edge_indices[t]: write_u16(output, output.tell(), swap16(index))
+      for vf in range(4): write_float(output, output.tell(), swapfloat(self.tri_normals[t][vf]))
+    
+    self.save_bsp(self.bsp_root, output)
+    output.seek(0)
+    return output
+
+  def inject_changes(self, mesh_data):
+    self.layer_mask = mesh_data["layer"]
+    self.vertices = mesh_data["verts"]
+    self.vertex_count = len(self.vertices)
+    self.edges = mesh_data["edges"]
+    self.edge_count = len(self.edges)
+    for vert_indices, edge_indices, tri_norm in mesh_data["faces"]:
+      self.tri_vert_indices.append(vert_indices)
+      self.tri_edge_indices.append(edge_indices)
+      self.tri_normals.append(tri_norm)
+    self.triangle_count = len(self.tri_vert_indices)
+
+    tris = [[list(self.vertices[ind][0:3]) for ind in ind_tri] for ind_tri in self.tri_vert_indices]
+    #tris = [tris[i:i+3] for i in range(0, len(tris), 3)]
+    self.bsp_count = 0
+    print("--CONSTRUCTED--")
+    tri_list = []
+    self.bsp_root = self.construct_collision_bsp(BSPTree(tris).root, 1, tri_list)
+    print(tri_list)
 
 class RenderSection:
   def __init__(self, data=None, materials=None):
@@ -689,7 +822,7 @@ class RenderedGeometry:
         if geom.uv_maps != None:
           for m in range(len(geom.uv_maps)):#self.material.mat_properties):
             uv_index = m
-            uv_index = self.material.properties[m].unk_b3 - 1 # These could be wrong
+            uv_index = self.material.properties[m].uv - 1 # These could be wrong
             if uv_index < 0: continue
             submesh_uvs.append(geom.uv_maps[uv_index].copy())
       else:
@@ -702,7 +835,7 @@ class RenderedGeometry:
         if geom.uv_maps != None:
           for m in range(len(geom.uv_maps)):#self.material.mat_properties):
             uv_index = m
-            uv_index = self.material.properties[m].unk_b3 - 1 # These could be wrong
+            uv_index = self.material.properties[m].uv - 1 # These could be wrong
             if uv_index < 0: continue
             submesh_uvs[m].extend(geom.uv_maps[uv_index]) # TODO: Make sure indexing via material property byte 3 is correct
     
@@ -738,7 +871,7 @@ class LevelModelInstance:
     self.vertex_color_index = sread_u32(self.data, self.data.tell())
     if versionNo >= 3:
       self.effects = sread_u32(self.data, self.data.tell()) # So far only zero
-      #if self.effects != 0: print("Model Instance Unk " + hex(self.effects))
+      #if self.effects != 0: print("Model Instance Effects " + hex(self.effects))
     
     self.rend_inst_count = sread_u32(self.data, self.data.tell())
     for i in range(self.rend_inst_count):
@@ -2156,35 +2289,56 @@ class SplineEntry:
     return self.loop_flag, self.points, self.transform
 
 class LightsEntry:
-  def __init__(self, data, name):
+  def __init__(self, data=None, name=None):
     self.name = name
     self.data = data
-    self.entry_offset = self.data.tell()
-    self.block_size = sread_s32(self.data, self.data.tell())
-    self.count = sread_s32(self.data, self.data.tell())
+    self.entry_offset = 0
+    self.block_size = 0
+    self.count = 0
     self.lights = []
+    if self.data == None: return
+    self.entry_offset = self.data.tell()
+    self.block_size = sread_u32(self.data, self.data.tell())
+    self.count = sread_u32(self.data, self.data.tell())
     print(self.name + " has " + str(self.count) + " lights")
     for i in range(self.count):
-      self.lights.append(LightEntry(self, self.data))
+      self.lights.append(LightEntry(self.data))
     self.data.seek(self.entry_offset + 0x4 + self.block_size)
+  
+  def save_changes(self):
+    output = BytesIO()
+    write_magic_str(output, output.tell(), "LITE", 4)
+    write_u32(output, output.tell(), 0)
+    self.count = len(self.lights)
+    write_u32(output, output.tell(), swap32(self.count))
+    for light in self.lights: write_bytes(output, output.tell(), light.save_changes().read())
+    self.block_size = data_len(output) - 0x8
+    write_u32(output, 0x4, swap32(self.block_size))
+    output.seek(0)
+    return output
 
 class LightEntry: #GetMeshLights__10LIGHT_LISTR11MESH_LIGHTSP5CVec4
   TYPES = ["Ambient", "Point", "Spot", "Sun"]
   
-  def __init__(self, lightList, data):
+  def __init__(self, data=None):
     self.data = data
+    self.flag = 0x1F
+    self.type = 1
+    self.color = ([0.0, 0.0, 0.0])
+    self.transform = Matrix()
+    self.radfall = tuple([0.0, 0.0])
+    self.spot = tuple([0.0, 0.0])
+    if self.data == None: return
     self.object_type = "Light"
     
-    self.flag = sread_s32(self.data, self.data.tell())
+    self.flag = sread_u32(self.data, self.data.tell())
     if (self.flag & 0x1) != 0:
       self.type = sread_u32(self.data, self.data.tell())
       if self.type == 4: self.type = 3
-    else: self.type = 1
     
     if (self.flag & 0x2) != 0:
       _v = [sread_float(self.data, self.data.tell()) for _ in range(4)]
       self.color = tuple(reversed(_v[0:3]))
-    else: self.color = tuple([0.0, 0.0, 0.0])
     
     if (self.flag & 0x4) != 0:
       _m = [sread_float(self.data, self.data.tell()) for _ in range(4 * 4)]
@@ -2194,16 +2348,45 @@ class LightEntry: #GetMeshLights__10LIGHT_LISTR11MESH_LIGHTSP5CVec4
       #T = Matrix.Translation(self.transform.to_translation())
       #S = Matrix.Diagonal(self.transform.to_scale().to_4d())
       #self.transform = T @ R# @ S
-    else: self.transform = Matrix()
     
     if (self.flag & 0x8) != 0:
-      # Area of effect
-      self.atten = tuple([sread_float(self.data, self.data.tell()), sread_float(self.data, self.data.tell())])
-    else: self.atten = tuple([0.0, 0.0])
+      # Radius, Falloff
+      self.radfall = tuple([sread_float(self.data, self.data.tell()), sread_float(self.data, self.data.tell())])
     if (self.flag & 0x10) != 0:
-      # Intensity or attenuation
-      self.area = tuple([sread_float(self.data, self.data.tell()), sread_float(self.data, self.data.tell())])
-    else: self.area = tuple([0.0, 0.0])
+      self.spot = tuple([sread_float(self.data, self.data.tell()), sread_float(self.data, self.data.tell())])
   
   def get_bpylight(self):
-    return self.TYPES[self.type], self.color, self.atten, self.area, self.transform
+    return self.TYPES[self.type], self.color, self.radfall, self.spot, self.transform
+  
+  def save_changes(self):
+    output = BytesIO()
+    write_u32(output, output.tell(), swap32(self.flag))
+    if (self.flag & 0x1) != 0: write_u32(output, output.tell(), swap32(self.type))
+    if (self.flag & 0x2) != 0:
+      _c = list(reversed(self.color)) + [1.0]
+      for i in range(4): write_float(output, output.tell(), swapfloat(_c[i]))
+    if (self.flag & 0x4) != 0:
+      transform = self.transform.transposed()
+      _m = [transform[i][j] for i in range(4) for j in range(4)]
+      for f in _m: write_float(output, output.tell(), swapfloat(f))
+    if (self.flag & 0x8) != 0:
+      for val in list(self.radfall): write_float(output, output.tell(), swapfloat(val))
+    if (self.flag & 0x10) != 0:
+      for val in list(self.spot): write_float(output, output.tell(), swapfloat(val))
+    output.seek(0)
+    return output
+
+  def inject_changes(self, color, type=0, transform=Matrix(), energy=0, soft_radius=0, spot_size=0, spot_blend=0):
+    self.flag = 0x1F
+    self.type = type
+    self.color = tuple(color)
+    self.transform = transform
+
+    self.radfall = (soft_radius, (energy * 2) - soft_radius)
+    if (self.radfall[0] + self.radfall[1]) == 0 or spot_size == 0: return
+    spot_val = spot_size * spot_size
+    spot_val -= energy * energy
+    spot_val = math.sqrt(spot_val)
+    spot_val /= (self.radfall[0] + self.radfall[1])
+    spot_val *= 0.5
+    self.spot = (spot_val - (spot_val * spot_blend), spot_val + (spot_val * spot_blend))
