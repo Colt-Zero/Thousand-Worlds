@@ -486,7 +486,9 @@ def get_param_values(self, context, actor, obj):
     elif param.type == 8:
       objectNames = ["None"] + [robj.name for robj in context.scene.objects if robj.data != None and "types.Curve" in str(type(robj.data))]
     elif param.type == 9:
-      objectNames = ["None"] + [robj.name for robj in context.scene.objects if robj.data == None and not "Actor Name" in robj and (("_lp2_type" in robj and robj["_lp2_type"] == "Dynamic Instance") or len([uc for uc in robj.users_collection if "Dynamic Level Models" == uc.name]) > 0)]
+      #dynam = [robj for robj in context.scene.objects if robj.data == None and not "Actor Name" in robj]
+      #dynam = [robj.name for robj in dynam if (("_lp2_type" in robj and robj["_lp2_type"] == "Dynamic Instance") or len([uc for uc in robj.users_collection if "Dynamic Level Models" == uc.name]) > 0)]
+      objectNames = ["None"] + [robj.name for robj in bpy.data.collections['Dynamic Level Models'].all_objects if robj.data == None]
     elif param.type == 10:
       objectNames = ["None"] + [robj.name for robj in context.scene.objects if robj.data != None and "types.Mesh" in str(type(robj.data)) and ("Face Blocks" in robj.data.attributes or "Corner Blocks 1" in robj.data.attributes or "Corner Blocks 2" in robj.data.attributes)]
     if param.type == 5 or param.type == 8 or param.type == 9 or param.type == 10:
