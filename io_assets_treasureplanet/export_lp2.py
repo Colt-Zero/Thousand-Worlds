@@ -647,12 +647,13 @@ def save(context, filepath="", save_mesh_changes=False, save_collision_changes=F
         #mid = (v1 + v2 + v3) / 3.0
         #mid = v1 + edge1 * 0.5
         #edge_dir = edge1.cross(edge2)
-        
-        edge_dir = edge.calc_tangent([loop for loop in edge.link_loops if loop in face.loops][0])
-        edge_dir = edge_dir * Vector([1.,0.,1.])
-        edge_dir.normalize()
+        selected_face = face#neighbor#
+        selected_loop = [loop for loop in edge.link_loops if loop in selected_face.loops][0]
+        edge_dir = edge.calc_tangent(selected_loop)
+        #edge_dir = edge_dir * Vector([1.,0.,1.])
+        #edge_dir.normalize()
         #edge_dir = Vector([edge_dir[0], edge_dir[1], -edge_dir[2]])
-        edge_plane = [edge_dir[0], 0.0, edge_dir[2], -edge_dir.dot(face.calc_center_median() * Vector([1.,0.,1.]))]
+        edge_plane = [edge_dir[0], edge_dir[1], edge_dir[2], -edge_dir.dot(selected_loop.vert.co)]# * Vector([1.,0.,1.]))]
         oewvs.extend(edge_plane)
     aimaps.add_map(out_verts, out_faces)
   

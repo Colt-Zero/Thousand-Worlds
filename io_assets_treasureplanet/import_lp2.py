@@ -94,7 +94,7 @@ def load_lp2(data, name, adef, asset_root):
   actorMeshes = {}
 
   bpy.context.scene.render.engine = 'CYCLES'
-  bpy.context.scene.cycles.shading_system = True
+  #bpy.context.scene.cycles.shading_system = True
   shader = bpy.data.texts.new("VertexColorShader")
   shader.write("""struct vector4 {
       float x, y, z, w;
@@ -198,7 +198,9 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
       #offset -3.0, 4.8
       #gSize = (gWidth + gDepth) // 2
       gSize = max(gWidth, gDepth)
-      bpy.ops.mesh.primitive_grid_add(x_subdivisions=gWidth, y_subdivisions=gDepth, size=gSize*gScale, enter_editmode=False, align='WORLD', location=(gX-(gWidth*gScale*0.5)+(float(gWidth) / gSize)*(gScale*2), gZ-(gDepth*gScale*0.5)+(float(gDepth) / gSize)*(gScale*2), 0), scale=(1,1,1))
+      xLoc = gX-(gWidth*gScale*0.5)+(float(gWidth) / gSize)*(gScale*2)
+      zLoc = gZ-(gDepth*gScale*0.5)+(float(gDepth) / gSize)*(gScale*2)
+      bpy.ops.mesh.primitive_grid_add(x_subdivisions=gWidth, y_subdivisions=gDepth, size=gSize*gScale, enter_editmode=False, align='WORLD', location=(xLoc, zLoc, 0), scale=(1,1,1))
       obj = bpy.data.objects["Grid"]
       #obj.scale.xy = float(gWidth) / gSize, float(gDepth) / gSize
       #obj.dimensions = (gWidth*gScale, gDepth*gScale, 0)
@@ -401,7 +403,7 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
       
       bpy_material.node_tree.links.new(mix_col.outputs[0], matnodes["Principled BSDF"].inputs[0])
       bpy_material.node_tree.links.new(matnodes["Principled BSDF"].outputs[0], matnodes['Material Output'].inputs[0])
-      edge_planes = aimaps.get_edgeplanes()
+      edge_planes = []#aimaps.get_edgeplanes()
       for a, (mesh_vertices, mesh_faces, mesh_edges, edge_blocks, cell_blocks, cell_corners, transform) in enumerate(aimaps.get_bpymaps()):
         mesh = bpy.data.meshes.new(name="AIMap %d" % (a))
         mesh.from_pydata(mesh_vertices, mesh_edges, mesh_faces)
@@ -427,13 +429,14 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
           mesh.attributes["Edge Blocks 1"].data[eb].value = edge_block[0]
           mesh.attributes["Edge Blocks 2"].data[eb].value = edge_block[-1]
         obj.matrix_world = Euler((math.radians(90), 0, 0)).to_matrix().to_4x4() @ transform
+        obj.select_set(False)
+        if a >= len(edge_planes): continue
         for t, plane_transform in enumerate(edge_planes[a]):
           edge_plane = bpy.data.objects.new("AI Map %d_Edge Plane %d" % (a, t), None)
           aimap_collection.objects.link(edge_plane)
           edge_plane.empty_display_type = 'SINGLE_ARROW'
           edge_plane.matrix_world = plane_transform
           edge_plane.parent = obj
-        obj.select_set(False)
     elif key == "AINF":
       data.seek(block)
       actorList = ActorInfoListEntry(data, adef.classes, adef.enums, adef.strings, stringlists["ASTR"], stringlists["PSTR"], aimaps, splines, ModelDirectory)
@@ -709,7 +712,7 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
             col_att = matnodes.new("ShaderNodeVertexColor")
             col_att.layer_name = "Col"
 
-            bpy_material.node_tree.links.new(vertColIndex.outputs[3], vertCol.inputs[0])
+            bpy_material.node_tree.links.new(vertColIndex.outputs[2], vertCol.inputs[0])
             bpy_material.node_tree.links.new(vertCol.outputs[0], scriptCheck.inputs[0])
             bpy_material.node_tree.links.new(scriptCheck.outputs[0], vertColMix.inputs[0])
             bpy_material.node_tree.links.new(vertCol.outputs[0], vertColMix.inputs[1])

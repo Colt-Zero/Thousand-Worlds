@@ -988,7 +988,7 @@ class PVS:
       write_u32(pvs_data, pvs_data.tell(), swap32(cell.edge_count))
       for e in range(cell.edge_count):
         for j in range(2): write_u32(pvs_data, pvs_data.tell(), swap32(cell.edge_indices[e][j]))
-        for j in range(4): write_float(pvs_data, pvs_data.tell(), swapfloat(cell.edge_worldvecs[e][j]))
+        for j in range(4): write_float(pvs_data, pvs_data.tell(), swapfloat(cell.edge_planes[e][j]))
         write_u32(pvs_data, pvs_data.tell(), swap32(cell.edge_neighbors[e]))
     pvs_data.seek(0)
     return pvs_data
@@ -1064,7 +1064,7 @@ class PortalCell:
     self.sections_count = 0
     self.node_id_count = 0
     self.grid_cell_id_count = 0
-    self.edge_worldvecs = []
+    self.edge_planes = []
     self.edge_indices = []
     self.edge_neighbors = []
     self.sections = []
@@ -1084,9 +1084,9 @@ class PortalCell:
       for j in range(2):
         self.edge_indices.append(sread_u32(self.data, self.data.tell())) # Edge vertex indices
       for j in range(4):
-        self.edge_worldvecs.append(sread_float(self.data, self.data.tell())) # Edge world vector (direction xyz and world placement w)
+        self.edge_planes.append(sread_float(self.data, self.data.tell())) # Edge plane (tangent direction xyz and world placement w)
       self.edge_neighbors.append(sread_u32(self.data, self.data.tell())) # Cell neighbor along edge
-    self.edge_worldvecs = [self.edge_worldvecs[i:i+4] for i in range(0, len(self.edge_worldvecs), 4)]
+    self.edge_planes = [self.edge_planes[i:i+4] for i in range(0, len(self.edge_planes), 4)]
     self.edge_indices = [self.edge_indices[i:i+2] for i in range(0, len(self.edge_indices), 2)]
     
     self.sections_count = sread_u32(self.data, self.data.tell())
@@ -1164,9 +1164,9 @@ class PortalCell:
     self.flags = flags
     
     self.edge_count = len(edges)
-    for indices, vecs, neighbors in edges:
+    for indices, planes, neighbors in edges:
       self.edge_indices.append(indices)
-      self.edge_worldvecs.append(vecs)
+      self.edge_planes.append(planes)
       self.edge_neighbors.append(neighbors)
     
     self.sections_count = len(sections)
@@ -2026,7 +2026,7 @@ class AIMapEntry: #TODO Potentially make it possible to create AIMaps based on t
       self.data = data
       self.cell_flags = 0
       self.edge_count = 0
-      self.edge_worldvecs = []
+      self.edge_planes = []
       self.edge_indices = []
       self.edge_neighbors = []
       self.edge_flags = []
@@ -2040,39 +2040,21 @@ class AIMapEntry: #TODO Potentially make it possible to create AIMaps based on t
         # Edge blocked flag (Store as 2 separate edge attributes to account for cell sharedness)
         if (self.type & 2) != 0: self.edge_flags.append(sread_u32(self.data, self.data.tell()))
         #if self.edge_flags[-1] != 0: print("Edge flag: " + str(self.edge_flags[-1]))
-        # Edge world vector (direction xyz and world placement w)
-        for j in range(4): self.edge_worldvecs.append(sread_float(self.data, self.data.tell()))
+        # Edge plane (tangent direction xyz and world placement w)
+        for j in range(4): self.edge_planes.append(sread_float(self.data, self.data.tell()))
         self.edge_neighbors.append(sread_u32(self.data, self.data.tell())) # Cell neighbor along edge
-      self.edge_worldvecs = [self.edge_worldvecs[i:i+4] for i in range(0, len(self.edge_worldvecs), 4)]
+      self.edge_planes = [self.edge_planes[i:i+4] for i in range(0, len(self.edge_planes), 4)]
       self.edge_indices = [self.edge_indices[i:i+2] for i in range(0, len(self.edge_indices), 2)]
-      #print(self.edge_worldvecs)
-      output = "["
-      for edgevec in self.edge_worldvecs:
-        output += "["
-        for component in edgevec:
-          output += "{:.5f},".format(component)
-        output += "]"
-      output += "]"
-      #print(output)
     
     def from_py(self, face):
       flags, edges = face
       self.cell_flags = flags
       self.edge_count = len(edges)
-      for indices, flags, vecs, neighbors in edges:
+      for indices, flags, planes, neighbors in edges:
         self.edge_indices.append(indices)
         self.edge_flags.append(flags)
-        self.edge_worldvecs.append(vecs)
+        self.edge_planes.append(planes)
         self.edge_neighbors.append(neighbors)
-      #print(self.edge_worldvecs)
-      output = "["
-      for edgevec in self.edge_worldvecs:
-        output += "["
-        for component in edgevec:
-          output += "{:.5f},".format(component)
-        output += "]"
-      output += "]"
-      #print(output)
   
   def __init__(self, data = None, _type = 0):
     self.object_type = "AIMap"
@@ -2118,7 +2100,7 @@ class AIMapEntry: #TODO Potentially make it possible to create AIMaps based on t
       for e in range(cell.edge_count):
         for j in range(2): write_u32(map_data, map_data.tell(), swap32(cell.edge_indices[e][j]))
         write_u32(map_data, map_data.tell(), swap32(cell.edge_flags[e]))
-        for j in range(4): write_float(map_data, map_data.tell(), swapfloat(cell.edge_worldvecs[e][j]))
+        for j in range(4): write_float(map_data, map_data.tell(), swapfloat(cell.edge_planes[e][j]))
         write_u32(map_data, map_data.tell(), swap32(cell.edge_neighbors[e]))
     map_data.seek(0)
     return map_data.read()
@@ -2139,12 +2121,12 @@ class AIMapEntry: #TODO Potentially make it possible to create AIMaps based on t
     vertices = [Vector(vertex) for vertex in self.vertices]
     for c, cell in enumerate(self.map_cells):
       for e, edge in enumerate(cell.edge_indices):
-        edge_center = (vertices[edge[0]] + vertices[edge[1]]) / 2.0
-        edge_planevec = Vector(cell.edge_worldvecs[e][0:3])
+        edge_center = vertices[edge[0]]#(vertices[edge[0]] + vertices[edge[1]]) / 2.0
+        edge_planedir = Vector(cell.edge_planes[e][0:3])
         transform = Matrix()
         transform[3] = Vector(list(edge_center[:]) + [1.0])
         transform = transform.transposed()
-        transform = transform @ Euler((math.radians(90), 0, 0)).to_matrix().to_4x4() @ edge_planevec.to_track_quat('X', 'Y').to_matrix().transposed().to_4x4()
+        transform = transform @ Euler((math.radians(90), 0, 0)).to_matrix().to_4x4() @ edge_planedir.to_track_quat('X', 'Y').to_matrix().transposed().to_4x4()
         output.append(transform)
     return output
   
