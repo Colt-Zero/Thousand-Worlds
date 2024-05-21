@@ -5,6 +5,7 @@ from adef import Adef, ActorStringsEntry
 from bsptree import BSPTree
 import math
 from mathutils import Vector, Matrix, Euler
+from vector4 import Vector4
 
 def load_adef(path):
   adef_data = None
@@ -405,6 +406,35 @@ class CollisionGeometry:
     if unk_2_cond != 0:
       nodeB = self.load_collision_bsp(count + 1, tri_list)
     return self.CollisionBSPNode(bsp_triangle_count, bsp_tris, nodeA, nodeB)
+  
+  def bsp_raytrace_flag_tris(self, node, ray_dist, ray_pos, ray_dir, tri_normals, tri_flags):
+    dist_flag1 = False
+    dist_flag2 = False
+    ctn = tri_normals[node.triangles[0]]
+    coll_tri_normal = Vector4(ctn[0], ctn[1], ctn[2], ctn[3])
+
+    in_vec = Vector4(0.0, 0.0, 0.0, 1.0)
+    in_vec = in_vec.xyz + in_vec.w
+    v_mul = ray_pos.xyz * coll_tri_normal
+    tri_dist = (v_mul.x + coll_tri_normal.w) + (in_vec.x * v_mul.y) + (in_vec.x * v_mul.z)
+    v_mul = coll_tri_normal.xyz * ray_dir
+    tri_dist2 = (v_mul.x + coll_tri_normal.w) + (in_vec.x * v_mul.y) + (in_vec.x * v_mul.z)
+
+    if ray_dist < tri_dist: dist_flag1 = True
+    else: dist_flag1 = -ray_dist <= tri_dist
+    dist_flag2 = ray_dist >= tri_dist
+    if ray_dist < tri_dist2: dist_flag1 = True
+    else:
+      if -ray_dist <= tri_dist2: dist_flag1 = True
+      dist_flag2 = True
+    
+    if dist_flag1 and dist_flag2:
+      for bsp_tri in node.triangles: tri_flags[bsp_tri >> 3] |= 1 << (bsp_tri & 0x1f)
+    
+    if dist_flag1 and node.nodeA:
+      self.bsp_raytrace_flag_tris(node.nodeA, ray_dist, ray_pos, ray_dir, tri_normals, tri_flags)
+    if dist_flag2 and node.nodeB:
+      self.bsp_raytrace_flag_tris(node.nodeB, ray_dist, ray_pos, ray_dir, tri_normals, tri_flags)
   
   def construct_collision_bsp(self, node, count=1, tri_list = []):
     if not node: return None
@@ -1259,24 +1289,24 @@ class Grid:
     for i in range(self.depth):
       row = []
       for j in range(self.width):
-        cell_size = sread_u32(self.data, self.data.tell())
-        sects = []
-        for c in range(cell_size):
-          cell_short_1 = sread_u16(self.data, self.data.tell())
-          cell_short_2 = sread_u16(self.data, self.data.tell())
-          sects.append((cell_short_1, cell_short_2))
+        collision_instance_count = sread_u32(self.data, self.data.tell())
+        collision_instances = []
+        for c in range(collision_instance_count):
+          geometry_instance_index = sread_u16(self.data, self.data.tell())
+          collision_instance_index = sread_u16(self.data, self.data.tell())
+          collision_instances.append((geometry_instance_index, collision_instance_index))
         
-        cell_size_b = sread_u32(self.data, self.data.tell())
-        ints = []
-        for c in range(cell_size_b):
-          cell_int = sread_u32(self.data, self.data.tell())
-          ints.append(cell_int)
-        row.append((sects, ints))
+        portal_cell_count = sread_u32(self.data, self.data.tell())
+        portal_cells = []
+        for c in range(portal_cell_count):
+          portal_cell_index = sread_u32(self.data, self.data.tell())
+          portal_cells.append(portal_cell_index)
+        row.append((collision_instances, portal_cells))
       self.cells.append(row)
     self.cells = [cell for row in reversed(self.cells) for cell in row]
   
   def get_bpymesh(self):
-    return self.width, self.width, self.scale, self.unk_f1, self.unk_f2, [int(len(sects) > 0) + int(len(ints) > 0)*2 for sects, ints in self.cells]
+    return self.width, self.width, self.scale, self.unk_f1, self.unk_f2, [int(len(collision_instances) > 0) + int(len(portal_cells) > 0)*2 for collision_instances, portal_cells in self.cells]
 
 def pj(s1, s2):
   return os.path.join(s1, s2)

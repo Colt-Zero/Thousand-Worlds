@@ -74,11 +74,17 @@ def load_p2s(data, name):
     elif key == "SKEL":
       data.seek(block)
       P2SSkeleton = SkeletonEntry(data, name)
+      blender_bones = [None]*P2SSkeleton.bone_count
       for bone in P2SSkeleton.bones:
         obj = bpy.data.objects.new("%s Bone %d" % (name, bone.bone_index), None)
+        blender_bones[bone.bone_index] = obj
         bpy.context.collection.objects.link(obj)
         obj.empty_display_type = 'SINGLE_ARROW'
-        obj.matrix_world =  Euler((math.radians(90), 0, 0)).to_matrix().to_4x4() @ bone.transform #Matrix.Translation(bone.floats)
+        obj.empty_display_size = 0.01
+        if bone.parent != None:
+          obj.parent = blender_bones[bone.parent.bone_index]
+          obj.matrix_world = Euler((math.radians(90), 0, 0)).to_matrix().to_4x4() @ bone.parent.transform
+        obj.matrix_world = obj.matrix_world @ Euler((math.radians(90), 0, 0)).to_matrix().to_4x4() @ bone.transform#Matrix.Translation(bone.floats)
     elif key == "CYCL":
       data.seek(block)
       P2SCycles = CyclesEntry(data, name, P2SSkeleton.bone_count)

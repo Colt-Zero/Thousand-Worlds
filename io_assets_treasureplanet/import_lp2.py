@@ -94,22 +94,18 @@ def load_lp2(data, name, adef, asset_root):
   actorMeshes = {}
 
   bpy.context.scene.render.engine = 'CYCLES'
-  #bpy.context.scene.cycles.shading_system = True
+  bpy.context.scene.cycles.shading_system = True
   shader = bpy.data.texts.new("VertexColorShader")
-  shader.write("""struct vector4 {
-      float x, y, z, w;
-};
-shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), output float alpha = 0.5)
+  shader.write("""shader VertexColShader(int index = 0, output color out = color(0.5, 0.5, 0.5))
 {
-    vector4 att = vector4(0.0, 0.0, 0.0, 0.0);
+    color att = color(0.0, 0.0, 0.0);
     string att_name = "Col";
     if (index > 0)
     {
       att_name = format("%s.%03d", att_name, index);
     }
     getattribute(att_name, att);
-    out = color(att.x, att.y, att.z);
-    alpha = att.w;
+    out = att;
 }""")
   
   for key in blocks.keys():
@@ -151,7 +147,7 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
           bpylight.shadow_soft_size = radfall[0] * 0.25
           bpylight.use_custom_distance = True
           bpylight.cutoff_distance = radfall[0] + radfall[1]
-          bpylight.distance = radfall[1]
+          #bpylight.distance = radfall[1]
         elif _type == "Spot":
           bpylight.energy = radfall_val
           bpylight.energy = bpylight.energy * 5000
@@ -238,6 +234,7 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
       obj.data.materials.append(grid_material)
       obj.data.attributes.new(name="Face Flags", type='FLOAT', domain='FACE')
       #for cf, cell_flag in enumerate(grid_cell_flags): obj.data.attributes["Face Flags"].data[cf].value = cell_flag
+      obj.hide_set(not obj.hide_get())
       obj.select_set(False)
     elif key == "NODE":
       data.seek(block)
@@ -542,9 +539,10 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
               if not "secs" in par_name: obj[param_id] = param.value / 60.0
               ui.update(subtype="TIME_ABSOLUTE")
           elif param.type == 2:
-            obj[param_id] = param.value
+            obj[param_id] = float(param.value)
             ui = obj.id_properties_ui(param_id)
-            ui.update(min=0, max=1, soft_min=0, soft_max=1)
+            #ui.update(min=0, soft_min=0)
+            #ui.update(max=1, soft_max=1)
           elif param.type == 3:
             obj[param_id] = param.value
           elif param.type == 4:
@@ -634,8 +632,8 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
                   elif ("Color" in param.string or "Colour" in param.string):
                     obj[param_id] = Vector(list(float_children.values())) / 255.0
                     ui = obj.id_properties_ui(param_id)
-                    ui.update(min=0.0, soft_min=0.0)
-                    ui.update(soft_max=1.0)
+                    #ui.update(min=0.0, soft_min=0.0)
+                    #ui.update(soft_max=1.0)
                     ui.update(subtype="COLOR")
                   continue
               obj[param_id] = []#[child.string for child in children]
@@ -675,15 +673,6 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
         mesh = bpy.data.meshes.new(name="Render Mesh %d" % r)
         mesh.from_pydata(section_vertices, [], section_faces)
         per_mesh_materials = {}
-        
-        if rendSect.color_maps > 0:
-          for section_color in section_colors:
-            if len(section_color) == 0: continue
-            vcol_lay = mesh.vertex_colors.new()
-            for sc, col in enumerate(vcol_lay.data):
-              col.color = list(reversed(section_color[sc][0:3])) + [section_color[sc][3]]
-        
-        vcol_len = len(mesh.vertex_colors.keys())
 
         uv_layers = []
         for mat_index in material_uvs.keys():
@@ -707,18 +696,28 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
             vertCol.script = shader
             scriptCheck = matnodes.new("ShaderNodeMath")
             scriptCheck.operation = 'COMPARE'
+            #scriptCheck.inputs[1].default_value = 0.5
             scriptCheck.inputs[2].default_value = 0.0
             vertColMix = matnodes.new("ShaderNodeMixRGB")
             col_att = matnodes.new("ShaderNodeVertexColor")
             col_att.layer_name = "Col"
+            #col_att = matnodes.new("ShaderNodeAttribute")
+            #col_att.attribute_name = "Col"
 
             bpy_material.node_tree.links.new(vertColIndex.outputs[2], vertCol.inputs[0])
             bpy_material.node_tree.links.new(vertCol.outputs[0], scriptCheck.inputs[0])
             bpy_material.node_tree.links.new(scriptCheck.outputs[0], vertColMix.inputs[0])
             bpy_material.node_tree.links.new(vertCol.outputs[0], vertColMix.inputs[1])
+            #bpy_material.node_tree.links.new(col_att.outputs[0], vertColMix.inputs[1])
             bpy_material.node_tree.links.new(col_att.outputs[0], vertColMix.inputs[2])
-            bpy_material.node_tree.links.new(vertCol.outputs[1], mix.inputs[0])
+            #bpy_material.node_tree.links.new(col_att.outputs[1], mix.inputs[0])
+            #bpy_material.node_tree.links.new(col_att.outputs[3], mix.inputs[0])
+            #bpy_material.node_tree.links.new(vertCol.outputs[1], mix.inputs[0])
             bpy_material.node_tree.links.new(vertColMix.outputs[0], mix.inputs[2])
+            #bpy_material.node_tree.links.new(col_att.outputs[0], mix.inputs[2])
+
+            #bpy_material.node_tree.links.new(vertColMix.outputs[0], matnodes["Principled BSDF"].inputs[19])
+            #bpy_material.node_tree.links.new(col_att.outputs[3], matnodes["Principled BSDF"].inputs[20])
 
             texMix = matnodes.new("ShaderNodeMixRGB")
             texture = None
@@ -744,6 +743,7 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
             if len(lp2_material.properties) == 1 and texture and (propType == 0 or propType == 3):
               bpy_material.node_tree.links.new(texture.outputs[0], texMix.inputs[len(lp2_material.properties)+1])
             bpy_material.node_tree.links.new(texMix.outputs[0], mix.inputs[1])
+            #bpy_material.node_tree.links.new(texMix.outputs[0], mix.inputs[2])
 
             matnodes["Principled BSDF"].inputs[7].default_value = 0.1
             matnodes["Principled BSDF"].inputs[9].default_value = 0.75
@@ -789,6 +789,20 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
           faces = [f for f in mesh.polygons if f.index >= face_offset and f.index < face_offset + face_len]
           for face in faces: face.material_index = bpy_index
           mesh.materials.append(bpy_material)
+        
+        if rendSect.color_maps > 0:
+          for chan, section_color in enumerate(section_colors):
+            if len(section_color) == 0: continue
+            vcol_lay = mesh.vertex_colors.new()
+            for sc, col in enumerate(vcol_lay.data):
+              col.color = list(reversed(section_color[sc][0:3])) + [section_color[sc][3]]
+          
+          #for chan, section_color in enumerate(section_colors):
+          #  if len(section_color) == 0: continue
+          #  alphabute = mesh.attributes.new(name="colalpha.%03d" % chan, type='FLOAT', domain='CORNER')
+          #  for sc, alp in enumerate(alphabute.data):
+          #    alp.value = section_color[sc][3]
+
         mesh.color_attributes.active_color_index = 0
         #mesh.use_auto_smooth = True
         #mesh.normals_split_custom_set_from_vertices(section_normals)
@@ -829,43 +843,46 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
           obj["Vertex Color Index"] = inst.vertex_color_index
           models_collection.objects.link(obj)
           obj.parent = iobj
-          if renderMeshObjects[mesh.name] != obj  and inst.vertex_color_index > 0:
+          if renderMeshObjects[mesh.name] != obj:#  and inst.vertex_color_index > 0:
             bpy.context.view_layer.objects.active = obj
+            #obj.pass_index = inst.vertex_color_index
             
             #TODO: Setup proper geometry node implentation for vertex colors, replacing the data transfer modifier
             #vcol_selection = "Col"
-            #if inst.vertex_color_index > 0: vcol_selection = "%s.%03d" % (vcol_selection, inst.vertex_color_index) 
-            #if "Geometry Nodes %s" % vcol_selection in bpy.data.node_groups:
-            #  bpy.ops.object.modifier_add(type='NODES')
-            #  node_group = bpy.data.node_groups["Geometry Nodes %s" % vcol_selection]
-            #else:
-            #  bpy.ops.node.new_geometry_nodes_modifier()
-            #  ng = bpy.context.object.modifiers["GeometryNodes"].node_group
-            #  node_group = ng
-            #  node_group.name = "Geometry Nodes %s" % vcol_selection
+            #if inst.vertex_color_index > 0: vcol_selection = "%s.%03d" % (vcol_selection, inst.vertex_color_index)
+            #if not "Geometry Nodes" in bpy.data.node_groups:
+            #  node_group = bpy.data.node_groups.new("Geometry Nodes", "GeometryNodeTree")
+            #  node_group.name = "Geometry Nodes"
             #  nodes = node_group.nodes
-            #  group_output = nodes["Group Output"]
-            # #group_output.inputs.new(type='CUSTOM', name='Attribute')
-            #  string_input = nodes.new(type='FunctionNodeInputString')
-            #  string_input.string = vcol_selection
+            #  group_input = nodes.new(type='NodeGroupInput')
+            #  group_output = nodes.new(type='NodeGroupOutput')
             #  color_input = nodes.new(type='GeometryNodeInputNamedAttribute')
             #  color_input.data_type = 'FLOAT_COLOR'
-            #  
+            #  color_output = nodes.new(type='GeometryNodeStoreNamedAttribute')
+            #  color_output.data_type = "BYTE_COLOR"
+            #  color_output.domain = "CORNER"
+            #  color_output.inputs[1].default_value = "geo_Col"
+            #
             #  links = node_group.links
-            #  links.new(string_input.outputs[0], color_input.inputs[0])
-            #  links.new(color_input.outputs["Attribute"], nodes["Group Output"].inputs[1])
-            #bpy.context.object.modifiers["GeometryNodes"].node_group = node_group
-            #bpy.context.object.modifiers["GeometryNodes"]["Output_2_attribute_name"] = "Col"
+            #  links.new(group_input.outputs[0], color_output.inputs[0])
+            #  links.new(group_input.outputs[1], color_input.inputs[0])
+            #  links.new(color_input.outputs[0], color_output.inputs[2])
+            #  links.new(color_output.outputs[0], group_output.inputs[0])
+            #else:
+            #  node_group = bpy.data.node_groups["Geometry Nodes"]
+            #modifier = obj.modifiers.new("GeometryNodes", type='NODES')
+            #modifier.node_group = node_group
+            #modifier["Input_1"] = vcol_selection
             
-            #bpy.ops.object.modifier_add(type='DATA_TRANSFER')
-            #bpy.context.object.modifiers["DataTransfer"].object = bpy.data.objects[renderMeshObjects[mesh.name].name]
-            #bpy.context.object.modifiers["DataTransfer"].use_loop_data = True
-            #bpy.context.object.modifiers["DataTransfer"].data_types_loops = {'VCOL'}
-            #bpy.context.object.modifiers["DataTransfer"].loop_mapping = 'TOPOLOGY'
+            #modifier = obj.modifiers.new("DataTransfer", type='DATA_TRANSFER')
+            #modifier.object = bpy.data.objects[renderMeshObjects[mesh.name].name]
+            #modifier.use_loop_data = True
+            #modifier.data_types_loops = {'VCOL'}
+            #modifier.loop_mapping = 'TOPOLOGY'
             #vcol_selection = "Col"
             #if inst.vertex_color_index > 0: vcol_selection = "%s.%03d" % (vcol_selection, inst.vertex_color_index) 
-            #bpy.context.object.modifiers["DataTransfer"].layers_vcol_loop_select_src = vcol_selection
-            #bpy.context.object.modifiers["DataTransfer"].layers_vcol_loop_select_dst = "Col"
+            #modifier.layers_vcol_loop_select_src = vcol_selection
+            #modifier.layers_vcol_loop_select_dst = "Col"
             
             obj.select_set(False)
           #obj.matrix_world = transform
@@ -909,43 +926,46 @@ shader VertexColShader(int index = 0, output color out = color(0.0, 0.0, 0.0), o
           obj["Vertex Color Index"] = inst.vertex_color_index
           dynamic_models_collection.objects.link(obj)
           obj.parent = iobj
-          if renderMeshObjects[mesh.name] != obj and inst.vertex_color_index > 0:
+          if renderMeshObjects[mesh.name] != obj:# and inst.vertex_color_index > 0:
             bpy.context.view_layer.objects.active = obj
+            #obj.pass_index = inst.vertex_color_index
             
             #TODO: Setup proper geometry node implentation for vertex colors, replacing the data transfer modifier
             #vcol_selection = "Col"
-            #if inst.vertex_color_index > 0: vcol_selection = "%s.%03d" % (vcol_selection, inst.vertex_color_index) 
-            #if "Geometry Nodes %s" % vcol_selection in bpy.data.node_groups:
-            #  bpy.ops.object.modifier_add(type='NODES')
-            #  node_group = bpy.data.node_groups["Geometry Nodes %s" % vcol_selection]
-            #else:
-            #  bpy.ops.node.new_geometry_nodes_modifier()
-            #  ng = bpy.context.object.modifiers["GeometryNodes"].node_group
-            #  node_group = ng
-            #  node_group.name = "Geometry Nodes %s" % vcol_selection
+            #if inst.vertex_color_index > 0: vcol_selection = "%s.%03d" % (vcol_selection, inst.vertex_color_index)
+            #if not "Geometry Nodes" in bpy.data.node_groups:
+            #  node_group = bpy.data.node_groups.new("Geometry Nodes", "GeometryNodeTree")
+            #  node_group.name = "Geometry Nodes"
             #  nodes = node_group.nodes
-            #  group_output = nodes["Group Output"]
-            # #group_output.inputs.new(type='CUSTOM', name='Attribute')
-            #  string_input = nodes.new(type='FunctionNodeInputString')
-            #  string_input.string = vcol_selection
+            #  group_input = nodes.new(type='NodeGroupInput')
+            #  group_output = nodes.new(type='NodeGroupOutput')
             #  color_input = nodes.new(type='GeometryNodeInputNamedAttribute')
             #  color_input.data_type = 'FLOAT_COLOR'
-            #  
+            #  color_output = nodes.new(type='GeometryNodeStoreNamedAttribute')
+            #  color_output.data_type = "BYTE_COLOR"
+            #  color_output.domain = "CORNER"
+            #  color_output.inputs[1].default_value = "geo_Col"
+            #
             #  links = node_group.links
-            #  links.new(string_input.outputs[0], color_input.inputs[0])
-            #  links.new(color_input.outputs["Attribute"], nodes["Group Output"].inputs[1])
-            #bpy.context.object.modifiers["GeometryNodes"].node_group = node_group
-            #bpy.context.object.modifiers["GeometryNodes"]["Output_2_attribute_name"] = "Col"
+            #  links.new(group_input.outputs[0], color_output.inputs[0])
+            #  links.new(group_input.outputs[1], color_input.inputs[0])
+            #  links.new(color_input.outputs[0], color_output.inputs[2])
+            #  links.new(color_output.outputs[0], group_output.inputs[0])
+            #else:
+            #  node_group = bpy.data.node_groups["Geometry Nodes"]
+            #modifier = obj.modifiers.new("GeometryNodes", type='NODES')
+            #modifier.node_group = node_group
+            #modifier["Input_1"] = vcol_selection
             
-            #bpy.ops.object.modifier_add(type='DATA_TRANSFER')
-            #bpy.context.object.modifiers["DataTransfer"].object = bpy.data.objects[renderMeshObjects[mesh.name].name]
-            #bpy.context.object.modifiers["DataTransfer"].use_loop_data = True
-            #bpy.context.object.modifiers["DataTransfer"].data_types_loops = {'VCOL'}
-            #bpy.context.object.modifiers["DataTransfer"].loop_mapping = 'TOPOLOGY'
+            #modifier = obj.modifiers.new("DataTransfer", type='DATA_TRANSFER')
+            #modifier.object = bpy.data.objects[renderMeshObjects[mesh.name].name]
+            #modifier.use_loop_data = True
+            #modifier.data_types_loops = {'VCOL'}
+            #modifier.loop_mapping = 'TOPOLOGY'
             #vcol_selection = "Col"
             #if inst.vertex_color_index > 0: vcol_selection = "%s.%03d" % (vcol_selection, inst.vertex_color_index) 
-            #bpy.context.object.modifiers["DataTransfer"].layers_vcol_loop_select_src = vcol_selection
-            #bpy.context.object.modifiers["DataTransfer"].layers_vcol_loop_select_dst = "Col"
+            #modifier.layers_vcol_loop_select_src = vcol_selection
+            #modifier.layers_vcol_loop_select_dst = "Col"
             
             obj.select_set(False)
           #obj.matrix_world = transform
